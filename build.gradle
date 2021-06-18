@@ -1,0 +1,64 @@
+plugins {
+  id 'com.github.johnrengelman.shadow' version '5.2.0'
+}
+
+apply plugin: 'scala'
+apply plugin: 'application'
+
+repositories {
+    jcenter()
+    maven {
+        url 'https://mvnrepository.com/artifact'
+    }
+}
+
+dependencies {
+    implementation group: 'org.scala-lang' , name: 'scala-library'  , version: '2.13.6'
+    implementation group: 'org.scala-lang' , name: 'scala-compiler' , version: '2.13.6'
+
+    testImplementation group: 'org.scalatest', name: 'scalatest_2.13', version: '3.2.9'
+    testImplementation group: 'org.scalactic', name: 'scalactic_2.13', version: '3.2.9'
+
+    testImplementation group: 'junit', name: 'junit', version: '4.13.2'
+    testImplementation group: 'org.scalatestplus', name: 'junit-4-13_2.13', version: '3.2.9.0'
+}
+
+version = '1.0.0'
+
+application {
+    mainClassName = 'cdb.dump'
+}
+
+processResources {
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE // allow duplicates
+}
+
+sourceSets {
+    main {
+        scala {
+            srcDir 'src/main'
+        }
+        resources {
+            srcDir 'src/main/resources'
+            exclude '**/*.sample'
+        }
+    }
+}
+
+test {
+    testLogging.showStandardStreams = true
+    testLogging.exceptionFormat = 'full'
+    minHeapSize = "2g"
+    maxHeapSize = "6g"
+}
+
+task repl(type:JavaExec) {
+    main = "scala.tools.nsc.MainGenericRunner"
+    classpath = sourceSets.main.runtimeClasspath
+    standardInput System.in
+    args '-usejavacp'
+}
+
+compileScala { // or: tasks.withType(ScalaCompile)
+    scalaCompileOptions.additionalParameters = ["-feature","-deprecation","-unchecked","-Xlint","-Xfatal-warnings"]
+}

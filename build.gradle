@@ -64,6 +64,14 @@ task repl(type:JavaExec) {
     args '-usejavacp'
 }
 
-compileScala { // or: tasks.withType(ScalaCompile)
-    scalaCompileOptions.additionalParameters = ["-feature","-deprecation","-unchecked","-Xlint","-Xfatal-warnings"]
+compileScala {
+    scalaCompileOptions.additionalParameters = [
+        "-feature"
+      , "-deprecation"
+      , "-unchecked"
+      , "-Xlint"
+      , "-Xfatal-warnings"
+      , "-Xasync"
+      , "-Xsource:3"
+    ]
 }

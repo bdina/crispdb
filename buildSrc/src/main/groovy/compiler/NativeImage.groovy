@@ -10,6 +10,7 @@ class NativeImage extends DefaultTask {
     enum Option {
         STATIC('--static')
       , MUSL('--libc=musl')
+      , LINK_BUILD('--link-at-build-time')
       String arg
       private Option(String s) { this.arg = s }
     }
@@ -17,7 +18,7 @@ class NativeImage extends DefaultTask {
     static final List<String> EXECUTABLE = [ 'native-image' ]
 
     @Input
-    List<Option> parameters = [ Option.STATIC, Option.MUSL ]
+    List<Option> parameters = [ Option.STATIC, Option.MUSL, Option.LINK_BUILD ]
 
     @Input
     Integer minHeap = 1
@@ -36,7 +37,7 @@ class NativeImage extends DefaultTask {
         , "-R:MaxHeapSize=${maxHeap}m"
         , "-R:MaxNewSize=${maxNew}m"
         ]
-        def source = [ '--link-at-build-time', '-jar', "${project.buildDir}/libs/crispdb-${project.version}.jar" ]
+        def source = [ '-jar', "${project.buildDir}/libs/crispdb-${project.version}.jar" ]
         def command = EXECUTABLE + parameters*.arg + heap + source
         logger.info "Executing native-image command: '${command.join(' ')}'"
 

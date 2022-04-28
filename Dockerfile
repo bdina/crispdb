@@ -32,7 +32,6 @@ ENV PATH=${GRADLE_HOME}/bin:${PATH}
 COPY . /graalvm/src/project
 RUN ${GRADLE_HOME}/bin/gradle -q --no-daemon shadowJar \
  && ${JAVA_HOME}/bin/native-image \
-    --no-server \
     --static \
     -R:MinHeapSize=1m \
     -R:MaxHeapSize=1m \

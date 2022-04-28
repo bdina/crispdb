@@ -36,7 +36,7 @@ class NativeImage extends DefaultTask {
         , "-R:MaxHeapSize=${maxHeap}m"
         , "-R:MaxNewSize=${maxNew}m"
         ]
-        def source = [ '-jar', "${project.buildDir}/libs/crispdb-${project.version}.jar" ]
+        def source = [ '--link-at-build-time', '-jar', "${project.buildDir}/libs/crispdb-${project.version}.jar" ]
         def command = EXECUTABLE + parameters*.arg + heap + source
         logger.info "Executing native-image command: '${command.join(' ')}'"
 

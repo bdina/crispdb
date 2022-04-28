@@ -1,6 +1,6 @@
 # To build image run `docker build --tag crispdb:<version> .`
 
-ARG GRAALVM_VERSION=21.1.0
+ARG GRAALVM_VERSION=22.1.0
 ARG JAVA_VERSION=11
 ARG GRAALVM_WORKDIR=/graalvm/src/project
 
@@ -10,7 +10,7 @@ ARG CRISP_VERSION=1.0.0
 # build (this is discarded by docker post-build)
 FROM ghcr.io/graalvm/graalvm-ce:ol8-java${JAVA_VERSION}-${GRAALVM_VERSION} AS build
 
-ARG GRADLE_VERSION=7.1.1
+ARG GRADLE_VERSION=7.4.2
 ARG CRISP_VERSION
 
 WORKDIR /graalvm/src/project

@@ -1,6 +1,6 @@
 # To build image run `docker build --tag crispdb:<version> .`
 
-ARG GRAALVM_VERSION=21.1.0
+ARG GRAALVM_VERSION=22.1.0
 ARG JAVA_VERSION=11
 ARG GRAALVM_WORKDIR=/graalvm/src/project
 
@@ -10,8 +10,10 @@ ARG CRISP_VERSION=1.0.0
 # build (this is discarded by docker post-build)
 FROM ghcr.io/graalvm/graalvm-ce:ol8-java${JAVA_VERSION}-${GRAALVM_VERSION} AS build
 
-ARG GRADLE_VERSION=7.1.1
-ARG CRSIP_VERSION
+ARG GRADLE_VERSION=7.4.2
+ARG CRISP_VERSION
+
+WORKDIR /graalvm/src/project
 
 # Install tools required for project
 # Run `docker build --no-cache .` to update dependencies
@@ -25,19 +27,16 @@ RUN gu install native-image \
 ENV GRADLE_HOME=/opt/gradle-${GRADLE_VERSION}
 ENV PATH=${GRADLE_HOME}/bin:${PATH}
 
-WORKDIR /graalvm/src/project
-
 # Copy the entire project and build it
 # This layer is rebuilt when a file changes in the project directory
 COPY . /graalvm/src/project
 RUN ${GRADLE_HOME}/bin/gradle -q --no-daemon shadowJar \
  && ${JAVA_HOME}/bin/native-image \
-    --no-server \
     --static \
     -R:MinHeapSize=1m \
     -R:MaxHeapSize=1m \
     -R:MaxNewSize=1m \
-    -jar build/libs/crispdb-${CRSIP_VERSION}.jar
+    -jar build/libs/crispdb-${CRISP_VERSION}.jar
 
 # Create a staging image (this will be part of the distribution)
 #FROM oracle/graalvm-ce:${GRAALVM_VERSION} AS dns-stage
@@ -45,7 +44,7 @@ RUN ${GRADLE_HOME}/bin/gradle -q --no-daemon shadowJar \
 FROM scratch AS dns-stage
 
 ARG GRAALVM_WORKDIR
-ARG CRSIP_VERSION
+ARG CRISP_VERSION
 
 ENV CRSIPDB_HOME=/opt/crispdb
 ENV PATH=${CRSIPDBS_HOME}/bin:${PATH}

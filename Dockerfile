@@ -1,7 +1,7 @@
 # To build image run `docker build --tag crispdb:<version> .`
 
-ARG GRAALVM_VERSION=22.1.0
-ARG JAVA_VERSION=11
+ARG GRAALVM_VERSION=22.2.0
+ARG JAVA_VERSION=17
 ARG GRAALVM_WORKDIR=/graalvm/src/project
 
 ARG CRISP_VERSION=1.0.0
@@ -10,7 +10,7 @@ ARG CRISP_VERSION=1.0.0
 # build (this is discarded by docker post-build)
 FROM ghcr.io/graalvm/graalvm-ce:ol8-java${JAVA_VERSION}-${GRAALVM_VERSION} AS build
 
-ARG GRADLE_VERSION=7.4.2
+ARG GRADLE_VERSION=7.5.1
 ARG CRISP_VERSION
 
 WORKDIR /graalvm/src/project
@@ -39,15 +39,15 @@ RUN ${GRADLE_HOME}/bin/gradle -q --no-daemon shadowJar \
     -jar build/libs/crispdb-${CRISP_VERSION}.jar
 
 # Create a staging image (this will be part of the distribution)
-#FROM oracle/graalvm-ce:${GRAALVM_VERSION} AS dns-stage
-#FROM alpine AS dns-stage
-FROM scratch AS dns-stage
+#FROM oracle/graalvm-ce:${GRAALVM_VERSION} AS app-stage
+#FROM alpine AS app-stage
+FROM scratch AS app-stage
 
 ARG GRAALVM_WORKDIR
 ARG CRISP_VERSION
 
-ENV CRSIPDB_HOME=/opt/crispdb
-ENV PATH=${CRSIPDBS_HOME}/bin:${PATH}
+ENV CRISPDB_HOME=/opt/crispdb
+ENV PATH=${CRISPDB_HOME}/bin:${PATH}
 
 WORKDIR ${CRISPDB_HOME}
 
@@ -60,11 +60,11 @@ COPY --from=build /lib64/ld-linux-x86-64.so.2 \
                   /lib64/libnss_files.so.2 \
                   /lib64/libresolv.so.2 /lib64/
 
-COPY --from=build ${GRAALVM_WORKDIR}/cripsdb* ${CRSIPDB_HOME}/
+COPY --from=build ${GRAALVM_WORKDIR}/cripsdb* ${CRISPDB_HOME}/
 
 CMD [ "/bin/sh" ]
 
 # And we finally create the application layer
-FROM dns-stage AS dns
+FROM app-stage AS app
 ENTRYPOINT [ "./crispdb" ]
 CMD [ "-XX:+PrintGC" , "-XX:+PrintGCTimeStamps" , "-XX:+VerboseGC" , "-d" ]

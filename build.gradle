@@ -2,7 +2,7 @@ import compiler.NativeImage
 
 plugins {
   id 'compiler.native-image'
-  id 'com.github.johnrengelman.shadow' version '7.1.2'
+  id 'com.github.johnrengelman.shadow' version '8.1.0'
   id 'com.palantir.git-version' version '0.13.0'
 }
 
@@ -79,12 +79,11 @@ compileScala {
       , "-Xsource:3"
       , "-opt:inline:cdb.**"
       , "-release"
-      , "17"
+      , "19"
     ]
 }
 
 shadowJar {
-    classifier = ''
     manifest {
         attributes 'App-Version': gitVersion()
     }

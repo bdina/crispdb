@@ -150,7 +150,7 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
         @tailrec
         def read_(len: Int, off: Int, data: Array[Byte]): Array[Byte] = {
           if (off < len) {
-            var (data,offset) = {
+            val (data,offset) = {
               val (data_,count_) = in.read(off, len - off)
               val offset_ = { off + count_ }
               (data_,offset_)
@@ -194,7 +194,7 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
 object Cdb {
   case class Element(key: Array[Byte], data: Array[Byte])
   object Element {
-    def empty = Element(key=Array.empty,data=Array.empty)
+    val empty = Element(key=Array.empty,data=Array.empty)
   }
 
   case class SlotTable(slots: Array[Long]) extends AnyVal

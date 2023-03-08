@@ -12,13 +12,13 @@ case class CdbMake() {
 
   import java.io.{BufferedOutputStream,FileOutputStream,RandomAccessFile}
 
-  private final var fp: Option[(RandomAccessFile,BufferedOutputStream)] = None
+  private final var fp = Option.empty[(RandomAccessFile,BufferedOutputStream)]
   private final var state = State.empty
 
   def start(filepath: Path): Unit = {
     val hashPointers_ = Vector.empty[HashPosition]
-    val tableCount_ = Array.fill[Int](256)(0)
-    val tableStart_ = Array.fill[Int](256)(0)
+    val tableCount_ = Array.fill(256)(0)
+    val tableStart_ = Array.fill(256)(0)
 
     val filePointer = new RandomAccessFile(filepath.toFile, "rw")
 
@@ -65,7 +65,7 @@ case class CdbMake() {
     }
 
     val tableCount_ = state.tableCount
-    val slotTable = new Array[Byte](INITIAL_POSITION)
+    val slotTable = Array.fill[Byte](INITIAL_POSITION)(0)
     for (i <- 0 until 256) {
       val pos_ = state.pos
       val len = tableCount_(i) * 2
@@ -80,25 +80,25 @@ case class CdbMake() {
       slotTable((i * 8) + 4 + 3) = ((len >>> 24) & 0xff).byteValue
 
       var curSlotPointer = tableStart_(i)
-      val hashTable = new Array[HashPosition](len)
+      val hashTable = Array.fill(len)(HashPosition.empty)
       for (u <- 0 until tableCount_(i)) {
         val hp = slotPointers(curSlotPointer)
         curSlotPointer += 1
 
-        var where = (hp.hash >>> 8) % len
-        while (hashTable(where) != null) {
-          where += 1
-          if (where == len) {
-            where = 0
+        var index = (hp.hash >>> 8) % len
+        while (hashTable(index) != HashPosition.empty) {
+          index += 1
+          if (index == len) {
+            index = 0
           }
         }
 
-        hashTable(where) = hp
+        hashTable(index) = hp
       }
 
       for (u <- 0 until len) {
         val hp = hashTable(u)
-        if (hp != null) {
+        if (hp != HashPosition.empty) {
           writeLeInt(hashTable(u).hash)
           writeLeInt(hashTable(u).pos.toInt)
         } else {
@@ -120,7 +120,7 @@ case class CdbMake() {
         state = state.copy(tableStart=tableStart_,tableCount=tableCount_)
         result
       }
-    }.getOrElse(Failure(IOError("CDB file failed to create")))
+    }.getOrElse(Failure(IOError.FailedToCreate))
   }
 
   private def writeLeInt(v: Int): Unit = fp.map { case (_,fp) =>
@@ -136,7 +136,7 @@ case class CdbMake() {
   private def incrementPos(count: Long): Try[Long] = {
     val newpos = state.pos + count
     if (newpos < count)
-      Failure(IOError("CDB file is too big."))
+      Failure(IOError.FileSizeExceeded)
     else {
       state = state.copy(pos = newpos)
       Success(state.pos)
@@ -144,17 +144,25 @@ case class CdbMake() {
   }
 }
 object CdbMake {
-  case class HashPosition(hash: Int = 0, pos: Long = 0)
+  case class HashPosition(hash: Int, pos: Long)
+  object HashPosition {
+    val empty = HashPosition(hash = 0, pos = 0L)
+  }
 
   sealed trait IllegalArgumentError
+  object IllegalArgumentError {
+    case class IllegalArgument(msg: String) extends IllegalArgumentException(msg) with IllegalArgumentError
 
-  case class IllegalArgument(msg: String) extends IllegalArgumentException(msg) with IllegalArgumentError
+    case object InvalidFormat extends IllegalArgumentException("input file not in correct format") with IllegalArgumentError
+    case object TruncatedInput extends IllegalArgumentException("input file is truncated") with IllegalArgumentError
+    case object InvalidLength extends IllegalArgumentException("length is too big") with IllegalArgumentError
+  }
 
-  case object InvalidFormat extends IllegalArgumentException("input file not in correct format") with IllegalArgumentError
-  case object TruncatedInput extends IllegalArgumentException("input file is truncated") with IllegalArgumentError
-  case object InvalidLength extends IllegalArgumentException("length is too big") with IllegalArgumentError
-
-  case class IOError(msg: String) extends java.io.IOException(msg)
+  sealed trait IOError
+  object IOError {
+    case object FileSizeExceeded extends java.io.IOException("CDB file is too big") with IOError
+    case object FailedToCreate extends java.io.IOException("CDB file failed to create") with IOError
+  }
 
   object Tokens {
     final val SEPARATOR = "->".toCharArray
@@ -162,7 +170,7 @@ object CdbMake {
 
   case class State(hashPointers : Vector[HashPosition], tableCount : Array[Int], tableStart : Array[Int], pos: Long)
   object State {
-    def empty = State(hashPointers = Vector.empty, tableCount = Array.empty, tableStart = Array.empty,pos = -1)
+    val empty = State(hashPointers = Vector.empty, tableCount = Array.empty, tableStart = Array.empty,pos = -1)
   }
 
   def empty = CdbMake()
@@ -181,8 +189,8 @@ object CdbMake {
     cdbMake.start(tempPath)
 
     def parseNewLine(src: Source): Try[Boolean] = if (src.hasNext && src.next() == '\n') Success(true) else {
-      println(s"MISSING NEWLINE")
-      Failure(InvalidFormat)
+      println("MISSING NEWLINE")
+      Failure(IllegalArgumentError.InvalidFormat)
     }
 
     def parseNewRecord(src: Source): Try[Boolean] = {
@@ -190,8 +198,8 @@ object CdbMake {
       if ((ch == -1) || (ch == '\n'))
         Success(false)
       else if (ch != '+') {
-        println(s"BAD NEW RECORD")
-        Failure(InvalidFormat)
+        println("BAD NEW RECORD")
+        Failure(IllegalArgumentError.InvalidFormat)
       }
       else
         Success(true)
@@ -201,19 +209,19 @@ object CdbMake {
       def parseLen(separator: Char): Try[Int] = {
         val (err,raw) = src.takeWhile(_ != separator).partition { case ch => (ch < '0') || (ch > '9') }
         if (err.length > 0) {
-          println(s"BAD LENGTH")
-          Failure(InvalidFormat)
+          println("BAD LENGTH")
+          Failure(IllegalArgumentError.InvalidFormat)
         } else {
           val len = raw.foldLeft (0) ((acc,ch) => acc * 10 + (ch - '0'))
-          if (len > 429496720) Failure(InvalidLength) else Success(len)
+          if (len > 429496720) Failure(IllegalArgumentError.InvalidLength) else Success(len)
         }
       }
       def parseVal(len: Int): Try[Array[Byte]] = {
         val (buferr,buf) = src.take(len).partition(_ == -1)
         if (buferr.length > 0) {
-          Failure(TruncatedInput)
+          Failure(IllegalArgumentError.TruncatedInput)
         } else {
-          val raw = new Array[Byte](len)
+          val raw = Array.fill[Byte](len)(0)
           buf.zipWithIndex.foreach { case (ch,i) => raw(i) = (ch & 0xff).byteValue }
           Success(raw)
         }
@@ -246,10 +254,18 @@ object CdbMake {
       next <- parseNewLine(src)
     } yield next
 
-    var write = true // stream closes early when evaluated as loop condition
-    while (parseNewRecord(src).getOrElse(false) && write) {
-      write = writeRecord.getOrElse(false)
+    def write(src: Source): Boolean = {
+      @scala.annotation.tailrec
+      def _write(result: Boolean): Boolean =
+        if (parseNewRecord(src).getOrElse(false) && result)
+          _write(writeRecord.getOrElse(false))
+        else
+          result
+
+      _write(true)
     }
+
+    write(src)
 
     for {
       _ <- cdbMake.finish()

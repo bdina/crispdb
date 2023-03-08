@@ -106,7 +106,7 @@ package object io {
 package io {
   trait Primitive
   case object Integer extends Primitive {
-    final val bytes: Int = 4
+    final val bytes = 4
   }
 }
 

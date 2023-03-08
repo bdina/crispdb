@@ -194,12 +194,12 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
 object Cdb {
   case class Element(key: Array[Byte], data: Array[Byte])
   object Element {
-    val empty = Element(key=Array.empty,data=Array.empty)
+    val empty = Element(key = Array.empty, data = Array.empty)
   }
 
-  case class SlotTable(slots: Array[Long]) extends AnyVal
+  case class SlotTable(val slots: Array[Long]) extends AnyVal
   object SlotTable {
-    val empty = SlotTable(slots = new Array[Long](256 * 2))
+    val empty = SlotTable(slots = Array.fill(256 * 2)(0L))
   }
 
   case class State(loop: Int, khash: Int, hslots: Long, hpos: Long, kpos: Long)

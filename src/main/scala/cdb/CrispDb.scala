@@ -78,20 +78,24 @@ object get extends App {
   } else {
     val file = args(0)
     val key = args(1).getBytes()
-    var skip = 1
-    if (args.length == 3)
-      skip += Integer.parseInt(args(2))
+    val skip = if (args.length == 3) args(2).toInt + 1 else 1
 
     val cdb = Cdb(Paths.get(file))
     cdb.findstart(key)
 
-    var data = Array.empty[Byte]
+    def find(skip: Int): Array[Byte] = {
+      @scala.annotation.tailrec
+      def _find(skip: Int, data: Array[Byte]): Array[Byte] =
+        if (skip <= 0)
+          data
+        else
+          _find(skip - 1,cdb.findnext(key).getOrElse(Array.empty[Byte]))
+
+      _find(skip,Array.empty[Byte])
+    }
+
     println(s"skip => $skip")
-    do {
-      data = cdb.findnext(key).getOrElse(Array.empty)
-      if (data.isEmpty) { skip = 0 }
-      skip -= 1
-    } while (skip > 0)
+    val data = find(skip)
 
     System.out.write(data)
     System.out.flush()

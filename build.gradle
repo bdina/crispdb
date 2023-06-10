@@ -18,7 +18,7 @@ repositories {
 
 ext {
     scala_maj = '2.13'
-    scala_ver = "${scala_maj}.10"
+    scala_ver = "${scala_maj}.11"
 }
 
 dependencies {
@@ -35,7 +35,7 @@ dependencies {
 version gitVersion()
 
 application {
-    mainClass.set("cdb.dump")
+    mainClass.set('cdb.dump')
 }
 
 processResources {
@@ -57,12 +57,12 @@ sourceSets {
 test {
     testLogging.showStandardStreams = true
     testLogging.exceptionFormat = 'full'
-    minHeapSize = "2g"
-    maxHeapSize = "6g"
+    minHeapSize = '2g'
+    maxHeapSize = '6g'
 }
 
 task repl(type:JavaExec) {
-    mainClass = "scala.tools.nsc.MainGenericRunner"
+    mainClass = 'scala.tools.nsc.MainGenericRunner'
     classpath = sourceSets.main.runtimeClasspath
     standardInput System.in
     args '-usejavacp'
@@ -70,16 +70,16 @@ task repl(type:JavaExec) {
 
 compileScala {
     scalaCompileOptions.additionalParameters = [
-        "-feature"
-      , "-deprecation"
-      , "-unchecked"
-      , "-Xlint"
-      , "-Xfatal-warnings"
-      , "-Xasync"
-      , "-Xsource:3"
-      , "-opt:inline:cdb.**"
-      , "-release"
-      , "19"
+        '-feature'
+      , '-deprecation'
+      , '-unchecked'
+      , '-Xlint'
+      , '-Xfatal-warnings'
+      , '-Xasync'
+      , '-Xsource:3'
+      , '-opt:inline:cdb.**'
+      , '-release'
+      , '17'
     ]
 }
 

@@ -2,7 +2,7 @@ import compiler.NativeImage
 
 plugins {
   id 'compiler.native-image'
-  id 'com.github.johnrengelman.shadow' version '8.1.1'
+  id 'com.gradleup.shadow' version '8.3.5'
   id 'com.palantir.git-version' version '1.0.0'
 }
 
@@ -18,7 +18,7 @@ repositories {
 
 ext {
     scala_maj = '2.13'
-    scala_ver = "${scala_maj}.12"
+    scala_ver = "${scala_maj}.16"
 }
 
 dependencies {
@@ -78,14 +78,15 @@ compileScala {
       , '-Xasync'
       , '-Xsource:3'
       , '-opt:inline:cdb.**'
+      , '-Wopt'
       , '-release'
-      , '17'
+      , '24'
     ]
 }
 
 shadowJar {
     manifest {
-        attributes 'App-Version': gitVersion()
+        attributes 'App-Version': version
     }
 }
 

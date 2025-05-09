@@ -170,7 +170,7 @@ object CdbMake {
 
   case class State(hashPointers : Vector[HashPosition], tableCount : Array[Int], tableStart : Array[Int], pos: Long)
   object State {
-    val empty = State(hashPointers = Vector.empty, tableCount = Array.empty, tableStart = Array.empty,pos = -1)
+    val empty = State(hashPointers = Vector.empty, tableCount = Array.empty, tableStart = Array.empty, pos = -1)
   }
 
   def empty = CdbMake()
@@ -178,11 +178,12 @@ object CdbMake {
   import java.nio.file.Files
   import scala.io.{BufferedSource,Source}
   import scala.util.Using
-  def make(dataPath: Path, cdbPath: Path, tempPath: Path, ignoreCdb: Option[Cdb]): Try[Path] = Using.Manager { case use =>
-    val is = use(Files.newInputStream(dataPath))
-    val src = use(Source.fromInputStream(is))
-    val cdbMake = CdbMake.empty
-    make(src, cdbPath, tempPath, cdbMake, ignoreCdb).get
+  def make(dataPath: Path, cdbPath: Path, tempPath: Path, ignoreCdb: Option[Cdb]): Try[Path] = Using.Manager {
+    case use =>
+      val is = use(Files.newInputStream(dataPath))
+      val src = use(Source.fromInputStream(is))
+      val cdbMake = CdbMake.empty
+      make(src, cdbPath, tempPath, cdbMake, ignoreCdb).get
   }
 
   def make(src: BufferedSource, cdbPath: Path, tempPath: Path, cdbMake: CdbMake = CdbMake.empty, ignoreCdb: Option[Cdb] = None): Try[Path] = {

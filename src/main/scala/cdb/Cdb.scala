@@ -50,7 +50,7 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
 
   override def close(): Unit = file.tryClose().recover { case ex => println(s"Exception $ex") }
 
-  def findstart(key: Array[Byte]): Unit = state = state.copy(loop = 0)
+  @inline final def findstart(key: Array[Byte]): Unit = state = state.copy(loop = 0)
 
   def find(key: Array[Byte]): Option[Array[Byte]] = state.synchronized {
     findstart(key)
@@ -216,7 +216,7 @@ object Cdb {
     final val HEX_128 = 0x100L
   }
 
-  def hash(key: Array[Byte]): Int = {
+  @inline def hash(key: Array[Byte]): Int = {
     import Constants._
     var h = HASH_SEED
     key.foreach { case b =>

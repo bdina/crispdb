@@ -123,7 +123,7 @@ case class CdbMake() {
     }.getOrElse(Failure(IOError.FailedToCreate))
   }
 
-  private def writeLeInt(v: Int): Unit = fp.map { case (_,fp) =>
+  @inline private def writeLeInt(v: Int): Unit = fp.map { case (_,fp) =>
     val bytes = Array(
          (v & 0xff).byteValue
       , ((v >>>  8) & 0xff).byteValue
@@ -133,7 +133,7 @@ case class CdbMake() {
     fp.tryWrite(bytes)
   }
 
-  private def incrementPos(count: Long): Try[Long] = {
+  @inline private def incrementPos(count: Long): Try[Long] = {
     val newpos = state.pos + count
     if (newpos < count)
       Failure(IOError.FileSizeExceeded)

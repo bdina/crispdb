@@ -59,83 +59,99 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
 
   def findnext(key: Array[Byte]): Option[Array[Byte]] = state.synchronized {
     val slotTable_ = slotTable.slots
-    var State(loop_,khash_,hslots_,hpos_,kpos_) = state
+    val currentState = state
 
-    if (slotTable_.isEmpty) return None
-
-    // locate the hash entry (if not yet found)
-    if (loop_ == 0) {
-      // get hash value for key
-      var u = Cdb.hash(key)
-
-      // unpack information for record
-      val slot = (u & 255).toInt
-      hslots_ = slotTable_((slot << 1) + 1)
-      if (hslots_ == 0) {
-        state = state.copy(loop=loop_,khash=khash_,hslots=hslots_,hpos=hpos_,kpos=kpos_)
-        return None
+    // Helper function to initialize hash state if needed
+    def initializeHashState(state: State): State = {
+      if (state.loop == 0) {
+        val u = Cdb.hash(key)
+        val slot = (u & 255).toInt
+        val hslots = slotTable_((slot << 1) + 1)
+        if (hslots == 0) {
+          state.copy(hslots = hslots)
+        } else {
+          val hpos = slotTable_(slot << 1)
+          val khash = u
+          val kpos = hpos + ((u >>> 8) % hslots.toInt << 3)
+          state.copy(loop = 0, khash = khash, hslots = hslots, hpos = hpos, kpos = kpos)
+        }
+      } else {
+        state
       }
-      hpos_ = slotTable_(slot << 1)
-
-      // store hash value
-      khash_ = u
-
-      // locate slot containing this key
-      u >>>= 8
-      u = u :% hslots_.toInt
-      u <<= 3
-      kpos_ = hpos_ + u
     }
 
-    // search all hash slots for this key
-    while (loop_ < hslots_) {
-      // read entry for key from hash slot
-      val (hash,pos) = try {
-        file.seek(kpos_)
-        val hash_ = file.readUnsignedInt()
-        val pos_ = file.readUnsignedInt()
-        (hash_,pos_)
-      } catch { case t: Throwable => (0,0) }
+    // Helper function to read hash entry from file
+    def readHashEntry(pos: Long): (Int, Long) = {
+      try {
+        file.seek(pos)
+        val hash = file.readUnsignedInt()
+        val entryPos = file.readUnsignedInt()
+        (hash, entryPos)
+      } catch { case t: Throwable => (0, 0) }
+    }
 
-      if (pos == 0L) {
-        state = state.copy(loop=loop_,khash=khash_,hslots=hslots_,hpos=hpos_,kpos=kpos_)
-        return None
+    // Helper function to read and compare key data
+    def readKeyData(pos: Long): (Boolean, Option[Array[Byte]]) = {
+      try {
+        file.seek(pos)
+        val klen = file.readUnsignedInt()
+        val dlen = file.readUnsignedInt()
+        val key_ = file.readFully(klen)
+        val hit = key.sameElements(key_)
+        val data = if (hit) Some(file.readFully(dlen)) else None
+        (hit, data)
+      } catch { case t: Throwable => (false, None) }
+    }
+
+    // Helper function to advance state to next position
+    def advanceState(state: State): State = {
+      val newLoop = state.loop + 1
+      val newKpos = {
+        val nextPos = state.kpos + 8L
+        if (nextPos == (state.hpos + (state.hslots << 3))) state.hpos else nextPos
+      }
+      state.copy(loop = newLoop, kpos = newKpos)
+    }
+
+    // Tail recursive function to search through hash slots
+    @tailrec
+    def searchSlots(state: State): (State, Option[Array[Byte]]) = {
+      if (slotTable_.isEmpty) {
+        (state, None)
       } else {
-        /*
-         * advance loop count and key position. wrap key position around to
-         * the beginning of the hash slot if we are at the end of the table
-         */
-        loop_ += 1
-        kpos_ += 8L
+        val initializedState = initializeHashState(state)
 
-        if (kpos_ == (hpos_ + (hslots_ << 3))) kpos_ = hpos_
+        if (initializedState.hslots == 0) {
+          (initializedState, None)
+        } else if (initializedState.loop >= initializedState.hslots) {
+          (initializedState, None)
+        } else {
+          val (hash, pos) = readHashEntry(initializedState.kpos)
 
-        // ignore this entry if hash values do not match
-        if (hash == khash_) {
-          // get length of key and data in hash slot entry
-          val (hit,data) = try {
-            file.seek(pos)
-            val klen_ = file.readUnsignedInt()
-            val dlen_ = file.readUnsignedInt()
-            val key_ = file.readFully(klen_)
-            val hit_ = key.sameElements(key_) // read key stored in entry and compare it to key we were given
-            val data_ = if (hit_) Some(file.readFully(dlen_)) else None
-            (hit_,data_)
-          } catch { case t: Throwable => (false,None) }
+          if (pos == 0L) {
+            (initializedState, None)
+          } else {
+            val advancedState = advanceState(initializedState)
 
-          // keys match, return the data
-          if (hit) {
-            state = state.copy(loop=loop_,khash=khash_,hslots=hslots_,hpos=hpos_,kpos=kpos_)
-            return data
+            if (hash == initializedState.khash) {
+              val (hit, data) = readKeyData(pos)
+              if (hit) {
+                (advancedState, data)
+              } else {
+                searchSlots(advancedState)
+              }
+            } else {
+              searchSlots(advancedState)
+            }
           }
         }
-        // no match; check next slot
       }
     }
 
-    // no more data values for this key
-    state = state.copy(loop=loop_,khash=khash_,hslots=hslots_,hpos=hpos_,kpos=kpos_)
-    None
+    // Execute the search and update state
+    val (finalState, result) = searchSlots(currentState)
+    state = finalState
+    result
   }
 
   case class Enumerator(in: BufferedInputStream, eod: Int) extends Iterator[Cdb.Element] with AutoCloseable {

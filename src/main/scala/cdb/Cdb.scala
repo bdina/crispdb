@@ -20,11 +20,12 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
 
   val slotTable: SlotTable =
     file.tryReadFully(len=INITIAL_POSITION).map { case table =>
-      val slots_ = SlotTable.empty.slots
+      val slots_ = new Array[Long](512) // Pre-allocate with exact size
       var offset = 0
       for (i <- 0 until 256) {
+        // Inline bit operations for better performance
         val pos: Long = (
-            table(offset+0) & 0xffL
+            table(offset)   & 0xffL
         | ((table(offset+1) & 0xffL) <<  8)
         | ((table(offset+2) & 0xffL) << 16)
         | ((table(offset+3) & 0xffL) << 24)
@@ -38,9 +39,9 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
         )
 
         offset += 8
-
-        slots_(i << 1) = pos
-        slots_((i << 1) + 1) = len
+        val idx = i << 1
+        slots_(idx) = pos
+        slots_(idx + 1) = len
       }
       SlotTable(slots = slots_)
     }.recover { case ex =>
@@ -52,7 +53,7 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
 
   @inline final def findstart(key: Array[Byte]): Unit = state = state.copy(loop = 0)
 
-  def find(key: Array[Byte]): Option[Array[Byte]] = state.synchronized {
+  @inline final def find(key: Array[Byte]): Option[Array[Byte]] = state.synchronized {
     findstart(key)
     findnext(key)
   }
@@ -62,7 +63,7 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
     val currentState = state
 
     // Helper function to initialize hash state if needed
-    def initializeHashState(state: State): State = {
+    @inline def initializeHashState(state: State): State = {
       if (state.loop == 0) {
         val u = Cdb.hash(key)
         val slot = (u & 255).toInt
@@ -81,7 +82,7 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
     }
 
     // Helper function to read hash entry from file
-    def readHashEntry(pos: Long): (Int, Long) = {
+    @inline def readHashEntry(pos: Long): (Int, Long) = {
       try {
         file.seek(pos)
         val hash = file.readUnsignedInt()
@@ -91,7 +92,7 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
     }
 
     // Helper function to read and compare key data
-    def readKeyData(pos: Long): (Boolean, Option[Array[Byte]]) = {
+    @inline def readKeyData(pos: Long): (Boolean, Option[Array[Byte]]) = {
       try {
         file.seek(pos)
         val klen = file.readUnsignedInt()
@@ -104,7 +105,7 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
     }
 
     // Helper function to advance state to next position
-    def advanceState(state: State): State = {
+    @inline def advanceState(state: State): State = {
       val newLoop = state.loop + 1
       val newKpos = {
         val nextPos = state.kpos + 8L
@@ -162,21 +163,19 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
     override def hasNext: Boolean = pos < eod
 
     override def next(): Cdb.Element = {
-      def read(len: Int): Array[Byte] = {
+      @inline def read(len: Int): Array[Byte] = {
+        if (len == 0) return Array.empty[Byte]
+        val data = new Array[Byte](len) // Pre-allocate with exact size
         @tailrec
-        def read_(len: Int, off: Int, data: Array[Byte]): Array[Byte] = {
+        def read_(off: Int): Array[Byte] = {
           if (off < len) {
-            val (data,offset) = {
-              val (data_,count_) = in.read(off, len - off)
-              val offset_ = { off + count_ }
-              (data_,offset_)
-            }
-            read_(len, offset, data)
+            val count = in.read(data, off, len - off)
+            if (count > 0) read_(off + count) else data
           } else {
             data
           }
         }
-        read_(len, 0, Array.empty[Byte])
+        read_(0)
       }
 
       val result = try {
@@ -236,9 +235,10 @@ object Cdb {
     import Constants._
     var h = HASH_SEED
     key.foreach { case b =>
+      val byteVal = b & 0xff
       h = h + ((h << 5L) & MASK_32BIT)
       h = (h & MASK_32BIT)
-      h = h ^ ((b + HEX_128) & MASK_8BIT).toByte
+      h = h ^ ((byteVal + HEX_128) & MASK_8BIT)
     }
     (h & MASK_32BIT).toInt
   }

@@ -9,7 +9,6 @@ object dump extends App {
     val cdbFile = args(0)
 
     val bos = new java.io.BufferedOutputStream(System.out)
-    val sb = new StringBuilder()
 
     val ARROW = "->".getBytes
     val PLUS = '+'.toByte
@@ -19,12 +18,10 @@ object dump extends App {
 
     Cdb(Paths.get(cdbFile)).iterator.foreach { case element =>
       val key = element.key
-      val klen = sb.append(key.length).toArray.map(_.toByte)
-      sb.setLength(0)
+      val klen = key.length.toString.getBytes
 
       val data = element.data
-      val dlen = sb.append(data.length).toArray.map(_.toByte)
-      sb.setLength(0)
+      val dlen = data.length.toString.getBytes
 
       bos.write(PLUS)
       bos.write(klen)

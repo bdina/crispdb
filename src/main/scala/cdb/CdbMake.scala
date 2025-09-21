@@ -65,28 +65,29 @@ case class CdbMake() {
     }
 
     val tableCount_ = state.tableCount
-    val slotTable = Array.fill[Byte](INITIAL_POSITION)(0)
+    val slotTable = new Array[Byte](INITIAL_POSITION) // Pre-allocate with exact size
     for (i <- 0 until 256) {
       val pos_ = state.pos
       val len = tableCount_(i) * 2
+      val base = i * 8
 
-      slotTable((i * 8) + 0) = (pos_ & 0xff).byteValue
-      slotTable((i * 8) + 1) = ((pos_ >>>  8) & 0xff).byteValue
-      slotTable((i * 8) + 2) = ((pos_ >>> 16) & 0xff).byteValue
-      slotTable((i * 8) + 3) = ((pos_ >>> 24) & 0xff).byteValue
-      slotTable((i * 8) + 4 + 0) = (len & 0xff).byteValue
-      slotTable((i * 8) + 4 + 1) = ((len >>>  8) & 0xff).byteValue
-      slotTable((i * 8) + 4 + 2) = ((len >>> 16) & 0xff).byteValue
-      slotTable((i * 8) + 4 + 3) = ((len >>> 24) & 0xff).byteValue
+      slotTable(base + 0) = (pos_ & 0xff).toByte
+      slotTable(base + 1) = ((pos_ >>> 8) & 0xff).toByte
+      slotTable(base + 2) = ((pos_ >>> 16) & 0xff).toByte
+      slotTable(base + 3) = ((pos_ >>> 24) & 0xff).toByte
+      slotTable(base + 4) = (len & 0xff).toByte
+      slotTable(base + 5) = ((len >>> 8) & 0xff).toByte
+      slotTable(base + 6) = ((len >>> 16) & 0xff).toByte
+      slotTable(base + 7) = ((len >>> 24) & 0xff).toByte
 
       var curSlotPointer = tableStart_(i)
-      val hashTable = Array.fill(len)(HashPosition.empty)
+      val hashTable = new Array[HashPosition](len) // Pre-allocate with exact size
       for (u <- 0 until tableCount_(i)) {
         val hp = slotPointers(curSlotPointer)
         curSlotPointer += 1
 
         var index = (hp.hash >>> 8) % len
-        while (hashTable(index) != HashPosition.empty) {
+        while (hashTable(index) != null && hashTable(index) != HashPosition.empty) {
           index += 1
           if (index == len) {
             index = 0
@@ -98,9 +99,9 @@ case class CdbMake() {
 
       for (u <- 0 until len) {
         val hp = hashTable(u)
-        if (hp != HashPosition.empty) {
-          writeLeInt(hashTable(u).hash)
-          writeLeInt(hashTable(u).pos.toInt)
+        if (hp != null && hp != HashPosition.empty) {
+          writeLeInt(hp.hash)
+          writeLeInt(hp.pos.toInt)
         } else {
           writeLeInt(0)
           writeLeInt(0)
@@ -124,11 +125,12 @@ case class CdbMake() {
   }
 
   @inline private def writeLeInt(v: Int): Unit = fp.map { case (_,fp) =>
-    val bytes = Array(
-         (v & 0xff).byteValue
-      , ((v >>>  8) & 0xff).byteValue
-      , ((v >>> 16) & 0xff).byteValue
-      , ((v >>> 24) & 0xff).byteValue
+    // Reuse a single array to avoid allocations
+    val bytes = Array[Byte](
+         (v & 0xff).toByte
+      , ((v >>> 8) & 0xff).toByte
+      , ((v >>> 16) & 0xff).toByte
+      , ((v >>> 24) & 0xff).toByte
     )
     fp.tryWrite(bytes)
   }

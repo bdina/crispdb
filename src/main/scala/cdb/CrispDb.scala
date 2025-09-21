@@ -1,6 +1,7 @@
 package cdb
 
 import java.nio.file.Paths
+import scala.annotation.tailrec
 
 object dump extends App {
   if (args.length != 1) {
@@ -81,7 +82,7 @@ object get extends App {
     cdb.findstart(key)
 
     def find(skip: Int): Array[Byte] = {
-      @scala.annotation.tailrec
+      @tailrec
       def _find(skip: Int, data: Array[Byte]): Array[Byte] =
         if (skip <= 0)
           data

@@ -66,20 +66,20 @@ class CdbSpec extends AnyFlatSpec with should.Matchers {
     val cdb = Cdb(cdbPath)
 
     val onekey = "one".getBytes
-    val onedata = new String(cdb.find(onekey).getOrElse(Array.empty))
+    val onedata = new String(cdb.find(onekey).getOrElse(Array.empty[Byte]))
 
     onedata should be ("Hello")
 
     val twokey = "two".getBytes
-    val twodata_first = new String(cdb.find(twokey).getOrElse(Array.empty))
-    val twodata_second = new String(cdb.findnext(twokey).getOrElse(Array.empty))
+    val twodata_first = new String(cdb.find(twokey).getOrElse(Array.empty[Byte]))
+    val twodata_second = new String(cdb.findnext(twokey).getOrElse(Array.empty[Byte]))
 
     twodata_first should be ("Goodbye")
     twodata_second should be ("Duplicate")
 
     val threekey = "three".getBytes
     cdb.findstart(threekey)
-    val threedata = new String(cdb.findnext(threekey).getOrElse(Array.empty))
+    val threedata = new String(cdb.findnext(threekey).getOrElse(Array.empty[Byte]))
 
     threedata should be ("")
   }

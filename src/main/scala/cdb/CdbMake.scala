@@ -3,6 +3,7 @@ package cdb
 import java.nio.file.Path
 
 import scala.util.{Failure,Success,Try}
+import scala.annotation.tailrec
 
 import Constants._
 
@@ -258,7 +259,7 @@ object CdbMake {
     } yield next
 
     def write(src: Source): Boolean = {
-      @scala.annotation.tailrec
+      @tailrec
       def _write(result: Boolean): Boolean =
         if (parseNewRecord(src).getOrElse(false) && result)
           _write(writeRecord.getOrElse(false))

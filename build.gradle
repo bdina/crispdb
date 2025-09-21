@@ -17,16 +17,16 @@ repositories {
 }
 
 ext {
-    scala_maj = '2.13'
-    scala_ver = "${scala_maj}.16"
+    scala_maj = '3'
+    scala_ver = "${scala_maj}.3.6"
 }
 
 dependencies {
-    implementation group: 'org.scala-lang' , name: 'scala-library'  , version: scala_ver
-    implementation group: 'org.scala-lang' , name: 'scala-compiler' , version: scala_ver
+    implementation group: 'org.scala-lang' , name: 'scala3-library_3'  , version: scala_ver
+    implementation group: 'org.scala-lang' , name: 'scala3-compiler_3' , version: scala_ver
 
-    testImplementation group: 'org.scalatest', name: "scalatest_${scala_maj}", version: '3.2.9'
-    testImplementation group: 'org.scalactic', name: "scalactic_${scala_maj}", version: '3.2.9'
+    testImplementation group: 'org.scalatest', name: "scalatest_${scala_maj}", version: '3.2.18'
+    testImplementation group: 'org.scalactic', name: "scalactic_${scala_maj}", version: '3.2.18'
 
     testImplementation group: 'junit', name: 'junit', version: '4.13.2'
     testImplementation group: 'org.scalatestplus', name: "junit-4-13_${scala_maj}", version: '3.2.9.0'
@@ -71,16 +71,9 @@ task repl(type:JavaExec) {
 compileScala {
     scalaCompileOptions.additionalParameters = [
         '-feature'
-      , '-deprecation'
-      , '-unchecked'
-      , '-Xlint'
-      , '-Xfatal-warnings'
-      , '-Xasync'
-      , '-Xsource:3'
-      , '-opt:inline:cdb.**'
-      , '-Wopt'
+      , '-Werror'
       , '-release'
-      , '24'
+      , '21'
     ]
 }
 

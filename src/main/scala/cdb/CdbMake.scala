@@ -185,12 +185,10 @@ object CdbMake {
     case use =>
       val is = use(Files.newInputStream(dataPath))
       val src = use(Source.fromInputStream(is))
-      val cdbMake = CdbMake.empty
-      make(src, cdbPath, tempPath, cdbMake, ignoreCdb).get
+      make(src=src, cdbPath=cdbPath, tempPath=tempPath, ignoreCdb=ignoreCdb).get
   }
 
   def make(src: BufferedSource, cdbPath: Path, tempPath: Path, cdbMake: CdbMake = CdbMake.empty, ignoreCdb: Option[Cdb] = None): Try[Path] = {
-    cdbMake.start(tempPath)
 
     def parseNewLine(src: Source): Try[Boolean] = if (src.hasNext && src.next() == '\n') Success(true) else {
       println("MISSING NEWLINE")
@@ -269,16 +267,20 @@ object CdbMake {
       _write(true)
     }
 
-    write(src)
+    cdbMake.start(tempPath)
 
-    for {
-      _ <- cdbMake.finish()
-      tmp = tempPath.toFile
-      cdb = cdbPath.toFile
-      _ = tmp.renameTo(cdb)
-    } yield {
-      println(s"COMPLETED WRITE - $cdb")
-      cdbPath
-    }
+    val result = write(src)
+
+    if (result) {
+      for {
+        _ <- cdbMake.finish()
+        tmp = tempPath.toFile
+        cdb = cdbPath.toFile
+        _ = tmp.renameTo(cdb)
+      } yield {
+        println(s"COMPLETED WRITE - $cdb")
+        cdbPath
+      }
+    } else Failure(IOError.FailedToCreate)
   }
 }

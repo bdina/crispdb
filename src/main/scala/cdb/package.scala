@@ -45,6 +45,29 @@ package object io {
       | (file.readUnsignedByte() << 16)
       | (file.readUnsignedByte() << 24))
 
+    @inline def readUnsignedIntLong(): Long = readUnsignedInt() & 0xFFFFFFFFL
+
+    @inline def readLeLong(): Long = {
+      val b0 = file.readUnsignedByte().toLong
+      val b1 = file.readUnsignedByte().toLong
+      val b2 = file.readUnsignedByte().toLong
+      val b3 = file.readUnsignedByte().toLong
+      val b4 = file.readUnsignedByte().toLong
+      val b5 = file.readUnsignedByte().toLong
+      val b6 = file.readUnsignedByte().toLong
+      val b7 = file.readUnsignedByte().toLong
+      (b0
+        | (b1 << 8)
+        | (b2 << 16)
+        | (b3 << 24)
+        | (b4 << 32)
+        | (b5 << 40)
+        | (b6 << 48)
+        | (b7 << 56))
+    }
+
+    @inline def tryReadLeLong(): Try[Long] = Try { readLeLong() }
+
     @inline def tryReadInt(): Try[Int] = {
       val pos = file.getFilePointer
       val result = Try { readUnsignedInt() }
@@ -72,6 +95,27 @@ package object io {
 
     @inline def tryReadLeInt(): Try[Int] = Try { readLeInt() }
 
+    @inline def readLeLong(): Long = {
+      val b0 = (in.read() & 0xff).toLong
+      val b1 = (in.read() & 0xff).toLong
+      val b2 = (in.read() & 0xff).toLong
+      val b3 = (in.read() & 0xff).toLong
+      val b4 = (in.read() & 0xff).toLong
+      val b5 = (in.read() & 0xff).toLong
+      val b6 = (in.read() & 0xff).toLong
+      val b7 = (in.read() & 0xff).toLong
+      (b0
+        | (b1 << 8)
+        | (b2 << 16)
+        | (b3 << 24)
+        | (b4 << 32)
+        | (b5 << 40)
+        | (b6 << 48)
+        | (b7 << 56))
+    }
+
+    @inline def tryReadLeLong(): Try[Long] = Try { readLeLong() }
+
     @inline def read(off: Int, len: Int): (Array[Byte],Int) = {
       val data = new Array[Byte](len)
       val count = in.read(data, off, len - off)
@@ -93,6 +137,30 @@ package object io {
 
     @inline def tryWrite(b: Array[Byte]) = Try { out.write(b) }
     @inline def tryWrite(b: Byte) = Try { out.write(b) }
+
+    @inline def writeLeInt(v: Int): Unit = {
+      val bytes = Array[Byte](
+           (v & 0xff).toByte
+        , ((v >>> 8) & 0xff).toByte
+        , ((v >>> 16) & 0xff).toByte
+        , ((v >>> 24) & 0xff).toByte
+      )
+      out.write(bytes)
+    }
+
+    @inline def writeLeLong(v: Long): Unit = {
+      val bytes = Array[Byte](
+           (v & 0xffL).toByte
+        , ((v >>> 8) & 0xffL).toByte
+        , ((v >>> 16) & 0xffL).toByte
+        , ((v >>> 24) & 0xffL).toByte
+        , ((v >>> 32) & 0xffL).toByte
+        , ((v >>> 40) & 0xffL).toByte
+        , ((v >>> 48) & 0xffL).toByte
+        , ((v >>> 56) & 0xffL).toByte
+      )
+      out.write(bytes)
+    }
   }
 
   implicit class UInt(val i: Int) extends AnyVal {
@@ -107,6 +175,9 @@ package io {
   trait Primitive
   case object Integer extends Primitive {
     final val bytes = 4
+  }
+  case object LongInteger extends Primitive {
+    final val bytes = 8
   }
 }
 

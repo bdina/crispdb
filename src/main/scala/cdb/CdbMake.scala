@@ -188,6 +188,12 @@ object CdbMake {
       make(src=src, cdbPath=cdbPath, tempPath=tempPath, ignoreCdb=ignoreCdb).get
   }
 
+  def make64(dataPath: Path, cdbPath: Path, tempPath: Path, ignoreCdb: Option[Cdb]): Try[Path] =
+    CdbMake64.make(dataPath = dataPath, cdbPath = cdbPath, tempPath = tempPath, ignoreCdb = ignoreCdb)
+
+  def make64(src: BufferedSource, cdbPath: Path, tempPath: Path, ignoreCdb: Option[Cdb]): Try[Path] =
+    CdbMake64.make(src = src, cdbPath = cdbPath, tempPath = tempPath, ignoreCdb = ignoreCdb)
+
   def make(src: BufferedSource, cdbPath: Path, tempPath: Path, cdbMake: CdbMake = CdbMake.empty, ignoreCdb: Option[Cdb] = None): Try[Path] = {
 
     def parseNewLine(src: Source): Try[Boolean] = if (src.hasNext && src.next() == '\n') Success(true) else {

@@ -6,7 +6,7 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.TaskAction
 
-class NativeImageTask extends DefaultTask {
+class NativeImage {
     enum Option {
         STATIC('--static')
       , MUSL('--libc=musl')
@@ -14,11 +14,13 @@ class NativeImageTask extends DefaultTask {
       String arg
       private Option(String s) { this.arg = s }
     }
+}
 
+class NativeImageTask extends DefaultTask {
     static final List<String> EXECUTABLE = [ 'native-image' ]
 
     @Input
-    List<Option> parameters = [ Option.STATIC, Option.MUSL, Option.LINK_BUILD ]
+    List<NativeImage.Option> parameters = [ NativeImage.Option.STATIC, NativeImage.Option.MUSL, NativeImage.Option.LINK_BUILD ]
 
     @Input
     Integer minHeap = 1
@@ -37,7 +39,9 @@ class NativeImageTask extends DefaultTask {
         , "-R:MaxHeapSize=${maxHeap}m"
         , "-R:MaxNewSize=${maxNew}m"
         ]
-        def source = [ '-jar', "${project.buildDir}/libs/crispdb-${project.version}.jar" ]
+        def jarTask = project.tasks.named('shadowJar').get()
+        def jarPath = jarTask.archiveFile.get().asFile.absolutePath
+        def source = [ '-jar', jarPath ]
         def command = EXECUTABLE + parameters*.arg + heap + source
         logger.lifecycle "Executing native-image command: '${command.join(' ')}'"
 
@@ -46,7 +50,7 @@ class NativeImageTask extends DefaultTask {
         process.waitFor()
 
         if (process.exitValue() != 0) {
-            logger.error "Unable to execute native-image: '${process.exitValue}'"
+            logger.error "Unable to execute native-image: '${process.exitValue()}'"
             throw new GradleException()
         }
     }
@@ -58,17 +62,10 @@ import org.gradle.api.Project
 class NativeImagePlugin implements Plugin<Project> {
     @Override
     void apply(Project project) {
-        // Delay task registration until after evaluation
-        project.afterEvaluate {
-            if (!project.plugins.hasPlugin("com.github.johnrengelman.shadow")) {
-                throw new IllegalStateException("The Shadow plugin must be applied for 'nativeImage' to work.")
-            }
-
-            project.tasks.register('nativeImage', NativeImageTask) { task ->
-                dependsOn project.tasks.named('shadowJar')
-                group = 'verification'
-                description = 'Builds a native image from a shadowJar'
-            }
+        project.tasks.register('nativeImage', NativeImageTask) { task ->
+            dependsOn 'shadowJar'
+            group = 'verification'
+            description = 'Builds a native image from a shadowJar'
         }
     }
 }

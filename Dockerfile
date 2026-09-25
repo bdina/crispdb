@@ -10,7 +10,7 @@ ARG CRISP_VERSION=1.0.0
 # build (this is discarded by docker post-build)
 FROM ghcr.io/graalvm/graalvm-ce:ol8-java${JAVA_VERSION}-${GRAALVM_VERSION} AS build
 
-ARG GRADLE_VERSION=8.1.1
+ARG GRADLE_VERSION=8.3
 ARG CRISP_VERSION
 
 WORKDIR /graalvm/src/project
@@ -30,13 +30,7 @@ ENV PATH=${GRADLE_HOME}/bin:${PATH}
 # Copy the entire project and build it
 # This layer is rebuilt when a file changes in the project directory
 COPY . /graalvm/src/project
-RUN ${GRADLE_HOME}/bin/gradle -q --no-daemon shadowJar \
- && ${JAVA_HOME}/bin/native-image \
-    --static \
-    -R:MinHeapSize=1m \
-    -R:MaxHeapSize=1m \
-    -R:MaxNewSize=1m \
-    -jar build/libs/crispdb-${CRISP_VERSION}.jar
+RUN ${GRADLE_HOME}/bin/gradle -q --no-daemon shadowJar nativeImage
 
 # Create a staging image (this will be part of the distribution)
 #FROM oracle/graalvm-ce:${GRAALVM_VERSION} AS app-stage
@@ -60,7 +54,7 @@ COPY --from=build /lib64/ld-linux-x86-64.so.2 \
                   /lib64/libnss_files.so.2 \
                   /lib64/libresolv.so.2 /lib64/
 
-COPY --from=build ${GRAALVM_WORKDIR}/cripsdb* ${CRISPDB_HOME}/
+COPY --from=build ${GRAALVM_WORKDIR}/crispdb* ${CRISPDB_HOME}/
 
 CMD [ "/bin/sh" ]
 

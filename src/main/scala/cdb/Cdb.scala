@@ -14,44 +14,14 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
   import cdb.io._
 
   private val file: RandomAccessFile = new RandomAccessFile(filepath.toString, "r")
+  private val format: CdbFormat = CdbFormat.detect(file)
   private var state: State = State.empty
 
-  override def iterator: Iterator[Cdb.Element] = Enumerator(filepath)
-
-  val slotTable: SlotTable =
-    file.tryReadFully(len=INITIAL_POSITION).map { case table =>
-      val slots_ = new Array[Long](512) // Pre-allocate with exact size
-      var offset = 0
-      for (i <- 0 until 256) {
-        // Inline bit operations for better performance
-        val pos: Long = (
-            table(offset)   & 0xffL
-        | ((table(offset+1) & 0xffL) <<  8)
-        | ((table(offset+2) & 0xffL) << 16)
-        | ((table(offset+3) & 0xffL) << 24)
-        )
-
-        val len: Long = (
-            table(offset+4) & 0xffL
-        | ((table(offset+5) & 0xffL) <<  8)
-        | ((table(offset+6) & 0xffL) << 16)
-        | ((table(offset+7) & 0xffL) << 24)
-        )
-
-        offset += 8
-        val idx = i << 1
-        slots_(idx) = pos
-        slots_(idx + 1) = len
-      }
-      SlotTable(slots = slots_)
-    }.recover { case ex =>
-      println(s"Exception $ex")
-      SlotTable.empty
-    }.get
+  override def iterator: Iterator[Cdb.Element] = Enumerator(filepath, format)
 
   override def close(): Unit = file.tryClose().recover { case ex => println(s"Exception $ex") }
 
-  @inline final def findstart(key: Array[Byte]): Unit = state = state.copy(loop = 0)
+  @inline final def findstart(key: Array[Byte]): Unit = state = state.copy(loop = 0L)
 
   @inline final def find(key: Array[Byte]): Option[Array[Byte]] = state.synchronized {
     findstart(key)
@@ -59,22 +29,22 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
   }
 
   def findnext(key: Array[Byte]): Option[Array[Byte]] = state.synchronized {
-    val slotTable_ = slotTable.slots
     val currentState = state
 
     // Helper function to initialize hash state if needed
     @inline def initializeHashState(state: State): State = {
       if (state.loop == 0) {
-        val u = Cdb.hash(key)
-        val slot = (u & 255).toInt
-        val hslots = slotTable_((slot << 1) + 1)
+        val u = Cdb.hash(key).copyLong
+        val slot = (u & 255L).toInt
+        val hslots = format.tableSlots(slot)
         if (hslots == 0) {
           state.copy(hslots = hslots)
         } else {
-          val hpos = slotTable_(slot << 1)
+          val hpos = format.tablePos(slot)
           val khash = u
-          val kpos = hpos + ((u >>> 8) % hslots.toInt << 3)
-          state.copy(loop = 0, khash = khash, hslots = hslots, hpos = hpos, kpos = kpos)
+          val startIndex = ((u >>> 8) % hslots)
+          val kpos = hpos + (startIndex * format.slotSizeBytes.toLong)
+          state.copy(loop = 0L, khash = khash, hslots = hslots, hpos = hpos, kpos = kpos)
         }
       } else {
         state
@@ -82,12 +52,9 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
     }
 
     // Helper function to read hash entry from file
-    @inline def readHashEntry(pos: Long): (Int, Long) = {
+    @inline def readHashEntry(pos: Long): (Long, Long) = {
       try {
-        file.seek(pos)
-        val hash = file.readUnsignedInt()
-        val entryPos = file.readUnsignedInt()
-        (hash, entryPos)
+        format.readSlot(file, pos)
       } catch { case t: Throwable => (0, 0) }
     }
 
@@ -108,8 +75,9 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
     @inline def advanceState(state: State): State = {
       val newLoop = state.loop + 1
       val newKpos = {
-        val nextPos = state.kpos + 8L
-        if (nextPos == (state.hpos + (state.hslots << 3))) state.hpos else nextPos
+        val nextPos = state.kpos + format.slotSizeBytes.toLong
+        val end = state.hpos + (state.hslots * format.slotSizeBytes.toLong)
+        if (nextPos == end) state.hpos else nextPos
       }
       state.copy(loop = newLoop, kpos = newKpos)
     }
@@ -117,33 +85,29 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
     // Tail recursive function to search through hash slots
     @tailrec
     def searchSlots(state: State): (State, Option[Array[Byte]]) = {
-      if (slotTable_.isEmpty) {
-        (state, None)
-      } else {
-        val initializedState = initializeHashState(state)
+      val initializedState = initializeHashState(state)
 
-        if (initializedState.hslots == 0) {
-          (initializedState, None)
-        } else if (initializedState.loop >= initializedState.hslots) {
+      if (initializedState.hslots == 0) {
+        (initializedState, None)
+      } else if (initializedState.loop >= initializedState.hslots) {
+        (initializedState, None)
+      } else {
+        val (hash, pos) = readHashEntry(initializedState.kpos)
+
+        if (pos == 0L) {
           (initializedState, None)
         } else {
-          val (hash, pos) = readHashEntry(initializedState.kpos)
+          val advancedState = advanceState(initializedState)
 
-          if (pos == 0L) {
-            (initializedState, None)
-          } else {
-            val advancedState = advanceState(initializedState)
-
-            if (hash == initializedState.khash) {
-              val (hit, data) = readKeyData(pos)
-              if (hit) {
-                (advancedState, data)
-              } else {
-                searchSlots(advancedState)
-              }
+          if (hash == initializedState.khash) {
+            val (hit, data) = readKeyData(pos)
+            if (hit) {
+              (advancedState, data)
             } else {
               searchSlots(advancedState)
             }
+          } else {
+            searchSlots(advancedState)
           }
         }
       }
@@ -155,8 +119,8 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
     result
   }
 
-  case class Enumerator(in: BufferedInputStream, eod: Int) extends Iterator[Cdb.Element] with AutoCloseable {
-    private var pos = INITIAL_POSITION
+  case class Enumerator(in: BufferedInputStream, eod: Long) extends Iterator[Cdb.Element] with AutoCloseable {
+    private var pos = INITIAL_POSITION.toLong
 
     override def close(): Unit = in.tryClose()
 
@@ -180,13 +144,13 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
 
       val result = try {
         val klen = in.readLeInt()
-        pos += Integer.bytes
+        pos += Integer.bytes.toLong
         val dlen = in.readLeInt()
-        pos += Integer.bytes
+        pos += Integer.bytes.toLong
         val key = read(klen)
-        pos += klen
+        pos += klen.toLong
         val data = read(dlen)
-        pos += dlen
+        pos += dlen.toLong
         Success(Cdb.Element(key, data))
       } catch { case t: Throwable => Failure(t) }
 
@@ -200,8 +164,15 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
 
     def apply(filepath: Path): Enumerator = {
       val in = new BufferedInputStream(Files.newInputStream(filepath))
-      val eod = in.tryReadLeInt().getOrElse(0)
-      in.skip(INITIAL_POSITION - Integer.bytes)
+      val eod = CdbFormat.detect(filepath).tablePos(0)
+      in.skip(INITIAL_POSITION.toLong)
+      Enumerator(in, eod)
+    }
+
+    def apply(filepath: Path, format: CdbFormat): Enumerator = {
+      val in = new BufferedInputStream(Files.newInputStream(filepath))
+      val eod = format.tablePos(0)
+      in.skip(INITIAL_POSITION.toLong)
       Enumerator(in, eod)
     }
   }
@@ -212,14 +183,9 @@ object Cdb {
     val empty = Element(key = Array.empty, data = Array.empty)
   }
 
-  case class SlotTable(val slots: Array[Long]) extends AnyVal
-  object SlotTable {
-    val empty = SlotTable(slots = Array.fill(256 * 2)(0L))
-  }
-
-  case class State(loop: Int, khash: Int, hslots: Long, hpos: Long, kpos: Long)
+  case class State(loop: Long, khash: Long, hslots: Long, hpos: Long, kpos: Long)
   object State {
-    val empty = State(loop = 0, khash = 0, hslots = 0, hpos = 0L, kpos = 0L)
+    val empty = State(loop = 0L, khash = 0L, hslots = 0L, hpos = 0L, kpos = 0L)
   }
 
   object Constants {

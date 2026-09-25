@@ -2,7 +2,7 @@
 A Constant Database (CDB) library that implements the public domain spec
 
 ### Requirements
-This project requires `Java 17` and `Scala 3.3.7`
+This project requires `Java 17` and `Scala 3.3.8`
 
 ## Create a JAR
 1. use gradle to create a build of the jar:

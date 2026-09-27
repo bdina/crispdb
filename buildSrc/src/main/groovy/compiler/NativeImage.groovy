@@ -1,71 +1,118 @@
 package compiler
 
 import org.gradle.api.DefaultTask
-import org.gradle.api.GradleException
+import org.gradle.api.Plugin
+import org.gradle.api.Project
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.ExecOperations
+
+import javax.inject.Inject
 
 class NativeImage {
     enum Option {
-        STATIC('--static')
-      , MUSL('--libc=musl')
-      , LINK_BUILD('--link-at-build-time')
-      String arg
-      private Option(String s) { this.arg = s }
+        STATIC('--static'),
+        MUSL('--libc=musl'),
+        LINK_BUILD('--link-at-build-time'),
+        NO_FALLBACK('--no-fallback')
+
+        final String arg
+        Option(String s) { this.arg = s }
     }
 }
 
-class NativeImageTask extends DefaultTask {
-    static final List<String> EXECUTABLE = [ 'native-image' ]
+abstract class NativeImageTask extends DefaultTask {
+
+    @Inject
+    abstract ExecOperations getExecOperations()
+
+    @InputFile
+    abstract RegularFileProperty getJarFile()
 
     @Input
-    List<NativeImage.Option> parameters = [ NativeImage.Option.STATIC, NativeImage.Option.MUSL, NativeImage.Option.LINK_BUILD ]
+    abstract Property<String> getImageName()
 
     @Input
-    Integer minHeap = 1
-    @Input
-    Integer maxHeap = 32
-    @Input
-    Integer maxNew = 32
+    abstract Property<String> getExecutable()
 
-    @InputDirectory
-    File dir = project.buildDir
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    @Input
+    abstract ListProperty<Object> getParameters()
+
+    @Input
+    abstract Property<Integer> getMinHeap()
+
+    @Input
+    abstract Property<Integer> getMaxHeap()
+
+    @Input
+    abstract Property<Integer> getMaxNew()
+
+    NativeImageTask() {
+        executable.convention('native-image')
+        outputDir.convention(project.layout.buildDirectory.dir('native'))
+        imageName.convention(project.name)
+        minHeap.convention(1)
+        maxHeap.convention(32)
+        maxNew.convention(32)
+        parameters.convention([
+            NativeImage.Option.STATIC,
+            NativeImage.Option.MUSL,
+            NativeImage.Option.LINK_BUILD
+        ])
+    }
+
+    @OutputFile
+    RegularFileProperty getOutputExecutable() {
+        outputDir.file(imageName)
+    }
 
     @TaskAction
     void runCommand() {
         def heap = [
-          "-R:MinHeapSize=${minHeap}m"
-        , "-R:MaxHeapSize=${maxHeap}m"
-        , "-R:MaxNewSize=${maxNew}m"
+            "-R:MinHeapSize=${minHeap.get()}m",
+            "-R:MaxHeapSize=${maxHeap.get()}m",
+            "-R:MaxNewSize=${maxNew.get()}m"
         ]
-        def jarTask = project.tasks.named('shadowJar').get()
-        def jarPath = jarTask.archiveFile.get().asFile.absolutePath
-        def source = [ '-jar', jarPath ]
-        def command = EXECUTABLE + parameters*.arg + heap + source
-        logger.lifecycle "Executing native-image command: '${command.join(' ')}'"
 
-        def process = command.execute(null, dir)
-        process.consumeProcessOutput(System.out, System.err)
-        process.waitFor()
+        def paramArgs = parameters.get().collect {
+            if (it instanceof NativeImage.Option) {
+                it.arg
+            } else {
+                it.toString()
+            }
+        }
 
-        if (process.exitValue() != 0) {
-            logger.error "Unable to execute native-image: '${process.exitValue()}'"
-            throw new GradleException()
+        def jarPath = jarFile.get().asFile.absolutePath
+        def targetName = imageName.get()
+        def outDir = outputDir.get().asFile
+        outDir.mkdirs()
+
+        def command = [executable.get()] + paramArgs + heap + ['-o', targetName, '-jar', jarPath]
+        logger.lifecycle "Executing native-image command: '${command.join(' ')}' in ${outDir}"
+
+        execOperations.exec { spec ->
+            spec.commandLine command
+            spec.workingDir outDir
         }
     }
 }
-
-import org.gradle.api.Plugin
-import org.gradle.api.Project
 
 class NativeImagePlugin implements Plugin<Project> {
     @Override
     void apply(Project project) {
         project.tasks.register('nativeImage', NativeImageTask) { task ->
-            dependsOn 'shadowJar'
-            group = 'verification'
-            description = 'Builds a native image from a shadowJar'
+            task.group = 'verification'
+            task.description = 'Builds a native image from a JAR'
         }
     }
 }

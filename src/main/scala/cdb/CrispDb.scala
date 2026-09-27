@@ -4,15 +4,21 @@ import java.nio.file.Paths
 import scala.annotation.tailrec
 
 object dump {
-  def main(args: Array[String]): Unit = {
+  def run(args: Array[String]): Int = {
     val raw = args.contains("--raw")
     val fileArgs = args.filterNot(_ == "--raw")
 
-    if (fileArgs.length != 1) {
-      println("usage: cdb.dump <file> [--raw]")
+    val cdbPath = if (fileArgs.isEmpty || fileArgs(0) == "-") {
+      Paths.get("/dev/stdin")
+    } else if (fileArgs.length == 1) {
+      Paths.get(fileArgs(0))
     } else {
-      val cdbFile = fileArgs(0)
+      System.err.println("usage: cdbdump [file] [--raw]")
+      return 111
+    }
 
+    try {
+      val cdb = Cdb(cdbPath)
       val bos = new java.io.BufferedOutputStream(System.out)
 
       val ARROW = "->".getBytes
@@ -21,10 +27,9 @@ object dump {
       val COLON = ':'.toByte
       val NL = '\n'.toByte
 
-      val cdb = Cdb(Paths.get(cdbFile))
       val it = if (raw) cdb.rawIterator else cdb.iterator
 
-      it.foreach { case element =>
+      it.foreach { element =>
         val key = element.key
         val klen = key.length.toString.getBytes
 
@@ -45,7 +50,17 @@ object dump {
       }
       bos.write(NL)
       bos.flush()
+      0
+    } catch {
+      case t: Throwable =>
+        System.err.println(s"cdbdump: error reading CDB: ${t.getMessage}")
+        111
     }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val code = run(args)
+    if (code != 0) System.exit(code)
   }
 }
 
@@ -56,7 +71,7 @@ object make {
   import scala.util.Failure
   import cdb.compression._
 
-  def main(args: Array[String]): Unit = {
+  def run(args: Array[String]): Int = {
     var is64 = false
     var codec: CompressionCodec = CompressionCodec.None
     var minSize = 32
@@ -69,7 +84,7 @@ object make {
         CompressionCodec.forName(name) match {
           case Some(c) => codec = c
           case scala.None =>
-            println(s"Unknown compression codec '$name', defaulting to none")
+            System.err.println(s"Unknown compression codec '$name', defaulting to none")
         }
       } else if (arg.startsWith("--min-size=")) {
         val sizeStr = arg.stripPrefix("--min-size=")
@@ -80,7 +95,8 @@ object make {
     }
 
     if (positional.length < 2) {
-      println("usage: cdb.make: <cdb_file> <temp_file> [--compress=none|deflate|gzip] [--min-size=N] [--64] [ignoreCdb]")
+      System.err.println("usage: cdbmake <cdb_file> <temp_file> [--compress=none|deflate|gzip] [--min-size=N] [--64] [ignoreCdb]")
+      111
     } else {
       val cdbPath: Path = Paths.get(positional(0))
       val tempPath: Path = Paths.get(positional(1))
@@ -89,7 +105,7 @@ object make {
         try {
           Some(Cdb(Paths.get(positional(2))))
         } catch { case ioe: IOException =>
-          println(s"Couldn't load `ignore' CDB file: ${ioe.getMessage}")
+          System.err.println(s"Couldn't load `ignore' CDB file: ${ioe.getMessage}")
           None
         }
       } else { None }
@@ -103,45 +119,80 @@ object make {
 
       makeResult match {
         case Failure(t) =>
-          println(s"Couldn't create CDB file: ${t.getMessage}")
-        case _ => ()
+          System.err.println(s"Couldn't create CDB file: ${t.getMessage}")
+          111
+        case _ => 0
       }
     }
+  }
+
+  def main(args: Array[String]): Unit = {
+    val code = run(args)
+    if (code != 0) System.exit(code)
   }
 }
 
 object get {
-  def main(args: Array[String]): Unit = {
+  def run(args: Array[String]): Int = {
     val raw = args.contains("--raw")
     val fileArgs = args.filterNot(_ == "--raw")
 
-    if ((fileArgs.length < 2) || (fileArgs.length > 3)) {
-      println("usage: cdb.get <file> <key> [skip] [--raw]")
+    val parsed: Option[(java.nio.file.Path, Array[Byte], Int)] = if (fileArgs.length == 1) {
+      Some((Paths.get("/dev/stdin"), fileArgs(0).getBytes, 0))
+    } else if (fileArgs.length == 2) {
+      val firstPath = Paths.get(fileArgs(0))
+      if (java.nio.file.Files.exists(firstPath)) {
+        Some((firstPath, fileArgs(1).getBytes, 0))
+      } else if (fileArgs(1).forall(_.isDigit)) {
+        Some((Paths.get("/dev/stdin"), fileArgs(0).getBytes, fileArgs(1).toInt))
+      } else {
+        Some((firstPath, fileArgs(1).getBytes, 0))
+      }
+    } else if (fileArgs.length == 3) {
+      Some((Paths.get(fileArgs(0)), fileArgs(1).getBytes, fileArgs(2).toInt))
     } else {
-      val file = fileArgs(0)
-      val key = fileArgs(1).getBytes()
-      val skip = if (fileArgs.length == 3) fileArgs(2).toInt + 1 else 1
+      None
+    }
 
-      val cdb = Cdb(Paths.get(file))
-      cdb.findstart(key)
+    parsed match {
+      case None =>
+        System.err.println("usage: cdbget [file] <key> [skip] [--raw]")
+        111
+      case Some((filePath, key, skipCount)) =>
+        try {
+          val cdb = Cdb(filePath)
+          cdb.findstart(key)
 
-      def find(skip: Int): Array[Byte] = {
-        @tailrec
-        def _find(skip: Int, data: Array[Byte]): Array[Byte] =
-          if (skip <= 0)
-            data
-          else {
+          @tailrec
+          def find(skipRemaining: Int): Option[Array[Byte]] = {
             val nextOpt = if (raw) cdb.findnextRaw(key) else cdb.findnext(key)
-            _find(skip - 1, nextOpt.getOrElse(Array.empty[Byte]))
+            nextOpt match {
+              case None => None
+              case Some(data) =>
+                if (skipRemaining <= 0) Some(data)
+                else find(skipRemaining - 1)
+            }
           }
 
-        _find(skip, Array.empty[Byte])
-      }
-
-      val data = find(skip)
-
-      System.out.write(data)
-      System.out.flush()
+          find(skipCount) match {
+            case Some(data) =>
+              System.out.write(data)
+              System.out.flush()
+              0
+            case None =>
+              100 // DJB standard: key not found
+          }
+        } catch {
+          case t: Throwable =>
+            System.err.println(s"cdbget: error: ${t.getMessage}")
+            111
+        }
     }
   }
+
+  def main(args: Array[String]): Unit = {
+    val code = run(args)
+    if (code != 0) System.exit(code)
+  }
 }
+

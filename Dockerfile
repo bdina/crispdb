@@ -30,7 +30,7 @@ ENV PATH=${GRADLE_HOME}/bin:${PATH}
 # Copy the entire project and build it
 # This layer is rebuilt when a file changes in the project directory
 COPY . /graalvm/src/project
-RUN ${GRADLE_HOME}/bin/gradle -q --no-daemon shadowJar nativeImage
+RUN ${GRADLE_HOME}/bin/gradle -q --no-daemon shadowJarAll nativeImageAll
 
 # Create a staging image (this will be part of the distribution)
 #FROM oracle/graalvm-ce:${GRAALVM_VERSION} AS app-stage
@@ -54,11 +54,11 @@ COPY --from=build /lib64/ld-linux-x86-64.so.2 \
                   /lib64/libnss_files.so.2 \
                   /lib64/libresolv.so.2 /lib64/
 
-COPY --from=build ${GRAALVM_WORKDIR}/crispdb* ${CRISPDB_HOME}/
+COPY --from=build ${GRAALVM_WORKDIR}/build/native/* ${CRISPDB_HOME}/bin/
 
 CMD [ "/bin/sh" ]
 
 # And we finally create the application layer
 FROM app-stage AS app
-ENTRYPOINT [ "./crispdb" ]
-CMD [ "-XX:+PrintGC" , "-XX:+PrintGCTimeStamps" , "-XX:+VerboseGC" , "-d" ]
+ENTRYPOINT [ "cdbdump" ]
+

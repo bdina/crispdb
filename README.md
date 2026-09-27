@@ -4,73 +4,81 @@ A Constant Database (CDB) library that implements the public domain spec
 ### Requirements
 This project requires `Java 17` and `Scala 3.9.0`
 
-## Create a JAR
-1. use gradle to create a build of the jar:
-```
-gradle shadowjar
-```
+## Building CLI Applications
 
-## File formats
+CrispDB produces three dedicated CLI tools (`cdbmake`, `cdbdump`, and `cdbget`) with first-class support for both native executables and JVM execution.
 
-### Legacy (32-bit) CDB
-- **Header**: 2048 bytes = 256 entries of `(pos:u32_le,len:u32_le)`
-- **Record**: `(klen:u32_le,dlen:u32_le,key,data)`
-- **Hash slot**: `(hash:u32_le,recordPos:u32_le)`
-- **Limit**: offsets effectively cap out below 4GiB
-
-### 64-bit extension (CDB64)
-- **Header**: 2048 bytes = 256 entries of `tablePos:u64_le`
-- **Hash slot**: `(hash:u64_le,recordPos:u64_le)` (16 bytes per slot)
-- **Record**: unchanged from legacy
-- **Table size**: derived from `tablePos[i+1] - tablePos[i]` (last table uses `fileSize - tablePos[255]`)
-- **Compatibility**: reads both formats; writing legacy remains default
-
-## Writing CDB64
-
-Use `CdbMake.make64(...)` to create a 64-bit database (legacy writer remains `CdbMake.make(...)`).
-
-## Data Compression (Values)
-
-CrispDB supports opt-in compression for record values using standard JVM compression libraries (`Deflate` / `Gzip`). 
-
-- **Standard Compliance**: Default database creation remains 100% compliant with standard uncompressed CDB public domain specification.
-- **Adaptive Framing**: Compressible values are framed with a safe magic envelope (`\0CDZ`) and decompressed transparently on read. Small (< 32 bytes) or incompressible data automatically remain uncompressed.
-- **Raw Access**: `cdb.findRaw(key)` and `cdb.rawIterator` provide access to exact on-disk payload bytes.
-
-### Scala API Example
-
-```scala
-import cdb._
-import cdb.compression._
-
-// Create CDB with Deflate compression
-val config = CompressionConfig(codec = CompressionCodec.Deflate)
-val maker = CdbMake(config)
-maker.start(tempPath)
-maker.add("key".getBytes, "large compressible value".getBytes)
-maker.finish()
-
-// Reading automatically decompresses
-val cdb = Cdb(cdbPath)
-val value = cdb.find("key".getBytes) // Returns Some(decompressed bytes)
-val raw = cdb.findRaw("key".getBytes) // Returns Some(raw on-disk bytes)
-```
-
-### CLI Usage
-
+### 1. GraalVM Native Executables
+To compile standalone native binaries (outputs to `build/native/`):
 ```bash
-# Create compressed CDB
-java -cp crispdb.jar cdb.make output.cdb temp.cdb --compress=deflate < input.txt
+# Build all three native binaries
+gradle nativeImageAll
 
-# Read value (decompressed by default)
-java -cp crispdb.jar cdb.get output.cdb "key"
+# Or build individual binaries
+gradle nativeImageCdbmake
+gradle nativeImageCdbdump
+gradle nativeImageCdbget
+```
+
+### 2. Standalone Fat JARs
+To build standalone executable JARs (outputs to `build/libs/`):
+```bash
+# Build all three fat JARs
+gradle shadowJarAll
+
+# Or build individually
+gradle shadowJarCdbmake
+gradle shadowJarCdbdump
+gradle shadowJarCdbget
+```
+
+### 3. JVM Start Scripts
+To generate runnable JVM shell and batch scripts (outputs to `build/install/crispdb/bin/`):
+```bash
+gradle installDist
+```
+
+## CLI Usage
+
+The CLI applications match the reference Dan J. Bernstein `cdb` conventions (reading from stdin, exit codes `0` for match, `100` for key not found, `111` on error), while supporting CrispDB features (compression, 64-bit offsets, and file arguments).
+
+### `cdbmake`
+Creates a CDB database from `+klen,dlen:key->data\n` records read from standard input:
+```bash
+# Using native binary
+./build/native/cdbmake output.cdb temp.cdb < input.txt
+
+# With compression
+./build/native/cdbmake output.cdb temp.cdb --compress=deflate < input.txt
+
+# Using fat JAR
+java -jar build/libs/cdbmake-all.jar output.cdb temp.cdb < input.txt
+```
+
+### `cdbdump`
+Dumps records from a CDB database in `cdbmake` format:
+```bash
+# Standard input redirection
+./build/native/cdbdump < output.cdb
+
+# Direct file argument
+./build/native/cdbdump output.cdb
+
+# Dump raw on-disk bytes without decompression
+./build/native/cdbdump output.cdb --raw
+```
+
+### `cdbget`
+Queries a key from a CDB database (exits `0` if found, `100` if not found, `111` on error):
+```bash
+# Standard input redirection (DJB style)
+./build/native/cdbget "mykey" < output.cdb
+
+# Direct file argument
+./build/native/cdbget output.cdb "mykey"
 
 # Read raw on-disk bytes
-java -cp crispdb.jar cdb.get output.cdb "key" --raw
-
-# Dump database (decompressed or raw)
-java -cp crispdb.jar cdb.dump output.cdb
-java -cp crispdb.jar cdb.dump output.cdb --raw
+./build/native/cdbget output.cdb "mykey" --raw
 ```
 
 ## Tests (Docker)

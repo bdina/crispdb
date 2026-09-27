@@ -1,8 +1,10 @@
 import compiler.NativeImage
+import compiler.NativeImageTask
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
 plugins {
   id 'compiler.native-image'
-  id 'com.gradleup.shadow' version '8.3.6'
+  id 'com.gradleup.shadow' version '9.0.0'
   id 'com.palantir.git-version' version '1.0.0'
 }
 
@@ -13,9 +15,16 @@ repositories {
     mavenCentral()
 }
 
+def cliApps = [
+    cdbmake: 'cdb.make',
+    cdbdump: 'cdb.dump',
+    cdbget : 'cdb.get'
+]
+
 ext {
     scala_maj = '3'
     scala_ver = "${scala_maj}.9.0"
+    cliApps = cliApps
 }
 
 dependencies {
@@ -33,6 +42,43 @@ version = gitVersion()
 
 application {
     mainClass.set('cdb.dump')
+}
+
+// Start scripts & distribution for all CLI apps
+cliApps.each { appName, mainCls ->
+    tasks.register("createStartScripts${appName.capitalize()}", CreateStartScripts) {
+        applicationName = appName
+        mainClass.set(mainCls)
+        outputDir = file("${project.layout.buildDirectory.get().asFile}/scripts")
+        classpath = tasks.named('jar').get().outputs.files + configurations.runtimeClasspath
+    }
+
+    tasks.register("run${appName.capitalize()}", JavaExec) {
+        group = 'application'
+        description = "Runs ${appName} on the JVM"
+        mainClass.set(mainCls)
+        classpath = sourceSets.main.runtimeClasspath
+        standardInput = System.in
+    }
+}
+
+tasks.named('startScripts').configure {
+    dependsOn cliApps.keySet().collect { "createStartScripts${it.capitalize()}" }
+}
+
+distributions {
+    main {
+        contents {
+            duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+            into('bin') {
+                from("${project.layout.buildDirectory.get().asFile}/scripts")
+            }
+        }
+    }
+}
+
+tasks.named('installDist').configure {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 processResources {
@@ -74,14 +120,38 @@ tasks.withType(ScalaCompile).configureEach {
     ]
 }
 
+// Shadow JAR configuration
 shadowJar {
     manifest {
         attributes 'App-Version': version
     }
 }
 
+cliApps.each { appName, mainCls ->
+    tasks.register("shadowJar${appName.capitalize()}", ShadowJar) {
+        group = 'build'
+        description = "Builds a standalone fat JAR for ${appName}"
+        from sourceSets.main.output
+        configurations = [project.configurations.runtimeClasspath]
+        archiveBaseName.set(appName)
+        archiveClassifier.set('all')
+        manifest {
+            attributes 'Main-Class': mainCls
+            attributes 'App-Version': version
+        }
+    }
+}
+
+tasks.register('shadowJarAll') {
+    group = 'build'
+    description = 'Builds standalone fat JARs for all CLI apps'
+    dependsOn cliApps.keySet().collect { "shadowJar${it.capitalize()}" }
+}
+
+// Native image configuration
 nativeImage {
     dependsOn shadowJar
+    jarFile.set(tasks.named('shadowJar').flatMap { it.archiveFile })
 
     minHeap = 1
     maxHeap = 3
@@ -93,3 +163,29 @@ nativeImage {
     , NativeImage.Option.LINK_BUILD
     ]
 }
+
+cliApps.each { appName, mainCls ->
+    def shadowTask = tasks.named("shadowJar${appName.capitalize()}")
+    tasks.register("nativeImage${appName.capitalize()}", NativeImageTask) {
+        group = 'verification'
+        description = "Builds a native image for ${appName}"
+        dependsOn shadowTask
+        jarFile.set(shadowTask.flatMap { it.archiveFile })
+        imageName.set(appName)
+        minHeap.set(1)
+        maxHeap.set(3)
+        maxNew.set(3)
+        parameters.set([
+            NativeImage.Option.STATIC,
+            NativeImage.Option.MUSL,
+            NativeImage.Option.LINK_BUILD
+        ])
+    }
+}
+
+tasks.register('nativeImageAll') {
+    group = 'verification'
+    description = 'Builds native images for all CLI apps'
+    dependsOn cliApps.keySet().collect { "nativeImage${it.capitalize()}" }
+}
+

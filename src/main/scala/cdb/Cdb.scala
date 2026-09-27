@@ -17,18 +17,25 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
   private val format: CdbFormat = CdbFormat.detect(file)
   private var state: State = State.empty
 
-  override def iterator: Iterator[Cdb.Element] = Enumerator(filepath, format)
+  override def iterator: Iterator[Cdb.Element] = Enumerator(filepath, format, raw = false)
+  def rawIterator: Iterator[Cdb.Element] = Enumerator(filepath, format, raw = true)
 
   override def close(): Unit = file.tryClose().recover { case ex => println(s"Exception $ex") }
 
   @inline final def findstart(key: Array[Byte]): Unit = state = state.copy(loop = 0L)
 
-  @inline final def find(key: Array[Byte]): Option[Array[Byte]] = state.synchronized {
+  @inline final def find(key: Array[Byte]): Option[Array[Byte]] =
+    findRaw(key).map(cdb.compression.ValueEnvelope.decompressPayload)
+
+  @inline final def findRaw(key: Array[Byte]): Option[Array[Byte]] = state.synchronized {
     findstart(key)
-    findnext(key)
+    findnextRaw(key)
   }
 
-  def findnext(key: Array[Byte]): Option[Array[Byte]] = state.synchronized {
+  def findnext(key: Array[Byte]): Option[Array[Byte]] =
+    findnextRaw(key).map(cdb.compression.ValueEnvelope.decompressPayload)
+
+  def findnextRaw(key: Array[Byte]): Option[Array[Byte]] = state.synchronized {
     val currentState = state
 
     // Helper function to initialize hash state if needed
@@ -119,7 +126,7 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
     result
   }
 
-  case class Enumerator(in: BufferedInputStream, eod: Long) extends Iterator[Cdb.Element] with AutoCloseable {
+  case class Enumerator(in: BufferedInputStream, eod: Long, raw: Boolean = false) extends Iterator[Cdb.Element] with AutoCloseable {
     private var pos = INITIAL_POSITION.toLong
 
     override def close(): Unit = in.tryClose()
@@ -151,7 +158,8 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
         pos += klen.toLong
         val data = read(dlen)
         pos += dlen.toLong
-        Success(Cdb.Element(key, data))
+        val payload = if (raw) data else cdb.compression.ValueEnvelope.decompressPayload(data)
+        Success(Cdb.Element(key, payload))
       } catch { case t: Throwable => Failure(t) }
 
       if (result.isFailure) throw Enumerator.NoSuchElementError else result.get
@@ -162,18 +170,22 @@ case class Cdb(filepath: Path) extends immutable.Iterable[Cdb.Element] with Auto
 
     case object NoSuchElementError extends java.util.NoSuchElementException
 
-    def apply(filepath: Path): Enumerator = {
+    def apply(filepath: Path): Enumerator = apply(filepath, raw = false)
+
+    def apply(filepath: Path, raw: Boolean): Enumerator = {
       val in = new BufferedInputStream(Files.newInputStream(filepath))
       val eod = CdbFormat.detect(filepath).tablePos(0)
       in.skip(INITIAL_POSITION.toLong)
-      Enumerator(in, eod)
+      Enumerator(in, eod, raw)
     }
 
-    def apply(filepath: Path, format: CdbFormat): Enumerator = {
+    def apply(filepath: Path, format: CdbFormat): Enumerator = apply(filepath, format, raw = false)
+
+    def apply(filepath: Path, format: CdbFormat, raw: Boolean): Enumerator = {
       val in = new BufferedInputStream(Files.newInputStream(filepath))
       val eod = format.tablePos(0)
       in.skip(INITIAL_POSITION.toLong)
-      Enumerator(in, eod)
+      Enumerator(in, eod, raw)
     }
   }
 }

@@ -7,7 +7,7 @@ import scala.annotation.tailrec
 
 import Constants._
 
-case class CdbMake() {
+case class CdbMake(config: cdb.compression.CompressionConfig = cdb.compression.CompressionConfig.default) {
   import cdb.io._
   import CdbMake._
 
@@ -33,10 +33,11 @@ case class CdbMake() {
   }
 
   def add(key: Array[Byte], data: Array[Byte]): Try[Int] = {
+    val finalData = cdb.compression.ValueEnvelope.compressPayload(data, config)
     writeLeInt(key.length)
-    writeLeInt(data.length)
+    writeLeInt(finalData.length)
 
-    fp.map { case (_,fp) => fp.tryWrite(key ++ data) }
+    fp.map { case (_,fp) => fp.tryWrite(key ++ finalData) }
 
     val hash = Cdb.hash(key)
 
@@ -47,8 +48,8 @@ case class CdbMake() {
     for {
       _ <- incrementPos(8)
       _ <- incrementPos(key.length)
-      _ <- incrementPos(data.length)
-    } yield key.length + data.length
+      _ <- incrementPos(finalData.length)
+    } yield key.length + finalData.length
   }
 
   def finish(): Try[Unit] = {
@@ -176,25 +177,37 @@ object CdbMake {
     val empty = State(hashPointers = Vector.empty, tableCount = Array.empty, tableStart = Array.empty, pos = -1)
   }
 
-  def empty = CdbMake()
+  def empty: CdbMake = CdbMake()
 
   import java.nio.file.Files
   import scala.io.{BufferedSource,Source}
   import scala.util.Using
-  def make(dataPath: Path, cdbPath: Path, tempPath: Path, ignoreCdb: Option[Cdb]): Try[Path] = Using.Manager {
+  def make(dataPath: Path, cdbPath: Path, tempPath: Path, ignoreCdb: Option[Cdb]): Try[Path] =
+    make(dataPath = dataPath, cdbPath = cdbPath, tempPath = tempPath, config = cdb.compression.CompressionConfig.default, ignoreCdb = ignoreCdb)
+
+  def make(dataPath: Path, cdbPath: Path, tempPath: Path, config: cdb.compression.CompressionConfig, ignoreCdb: Option[Cdb]): Try[Path] = Using.Manager {
     case use =>
       val is = use(Files.newInputStream(dataPath))
       val src = use(Source.fromInputStream(is))
-      make(src=src, cdbPath=cdbPath, tempPath=tempPath, ignoreCdb=ignoreCdb).get
+      make(src = src, cdbPath = cdbPath, tempPath = tempPath, cdbMake = CdbMake(config), ignoreCdb = ignoreCdb).get
   }
 
   def make64(dataPath: Path, cdbPath: Path, tempPath: Path, ignoreCdb: Option[Cdb]): Try[Path] =
     CdbMake64.make(dataPath = dataPath, cdbPath = cdbPath, tempPath = tempPath, ignoreCdb = ignoreCdb)
 
-  def make64(src: BufferedSource, cdbPath: Path, tempPath: Path, ignoreCdb: Option[Cdb]): Try[Path] =
+  def make64(dataPath: Path, cdbPath: Path, tempPath: Path, config: cdb.compression.CompressionConfig, ignoreCdb: Option[Cdb]): Try[Path] =
+    CdbMake64.make(dataPath = dataPath, cdbPath = cdbPath, tempPath = tempPath, config = config, ignoreCdb = ignoreCdb)
+
+  def make64(src: Source, cdbPath: Path, tempPath: Path, ignoreCdb: Option[Cdb]): Try[Path] =
     CdbMake64.make(src = src, cdbPath = cdbPath, tempPath = tempPath, ignoreCdb = ignoreCdb)
 
-  def make(src: BufferedSource, cdbPath: Path, tempPath: Path, cdbMake: CdbMake = CdbMake.empty, ignoreCdb: Option[Cdb] = None): Try[Path] = {
+  def make64(src: Source, cdbPath: Path, tempPath: Path, config: cdb.compression.CompressionConfig, ignoreCdb: Option[Cdb]): Try[Path] =
+    CdbMake64.make(src = src, cdbPath = cdbPath, tempPath = tempPath, config = config, ignoreCdb = ignoreCdb)
+
+  def make(src: Source, cdbPath: Path, tempPath: Path, config: cdb.compression.CompressionConfig, ignoreCdb: Option[Cdb]): Try[Path] =
+    make(src = src, cdbPath = cdbPath, tempPath = tempPath, cdbMake = CdbMake(config), ignoreCdb = ignoreCdb)
+
+  def make(src: Source, cdbPath: Path, tempPath: Path, cdbMake: CdbMake = CdbMake.empty, ignoreCdb: Option[Cdb] = None): Try[Path] = {
 
     def parseNewLine(src: Source): Try[Boolean] = if (src.hasNext && src.next() == '\n') Success(true) else {
       println("MISSING NEWLINE")

@@ -65,7 +65,7 @@ task repl(type:JavaExec) {
     args '-usejavacp'
 }
 
-compileScala {
+tasks.withType(ScalaCompile).configureEach {
     scalaCompileOptions.additionalParameters = [
         '-feature'
       , '-Werror'

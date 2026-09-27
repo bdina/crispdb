@@ -29,6 +29,50 @@ gradle shadowjar
 
 Use `CdbMake.make64(...)` to create a 64-bit database (legacy writer remains `CdbMake.make(...)`).
 
+## Data Compression (Values)
+
+CrispDB supports opt-in compression for record values using standard JVM compression libraries (`Deflate` / `Gzip`). 
+
+- **Standard Compliance**: Default database creation remains 100% compliant with standard uncompressed CDB public domain specification.
+- **Adaptive Framing**: Compressible values are framed with a safe magic envelope (`\0CDZ`) and decompressed transparently on read. Small (< 32 bytes) or incompressible data automatically remain uncompressed.
+- **Raw Access**: `cdb.findRaw(key)` and `cdb.rawIterator` provide access to exact on-disk payload bytes.
+
+### Scala API Example
+
+```scala
+import cdb._
+import cdb.compression._
+
+// Create CDB with Deflate compression
+val config = CompressionConfig(codec = CompressionCodec.Deflate)
+val maker = CdbMake(config)
+maker.start(tempPath)
+maker.add("key".getBytes, "large compressible value".getBytes)
+maker.finish()
+
+// Reading automatically decompresses
+val cdb = Cdb(cdbPath)
+val value = cdb.find("key".getBytes) // Returns Some(decompressed bytes)
+val raw = cdb.findRaw("key".getBytes) // Returns Some(raw on-disk bytes)
+```
+
+### CLI Usage
+
+```bash
+# Create compressed CDB
+java -cp crispdb.jar cdb.make output.cdb temp.cdb --compress=deflate < input.txt
+
+# Read value (decompressed by default)
+java -cp crispdb.jar cdb.get output.cdb "key"
+
+# Read raw on-disk bytes
+java -cp crispdb.jar cdb.get output.cdb "key" --raw
+
+# Dump database (decompressed or raw)
+java -cp crispdb.jar cdb.dump output.cdb
+java -cp crispdb.jar cdb.dump output.cdb --raw
+```
+
 ## Tests (Docker)
 
 Run unit tests without installing Gradle locally:

@@ -1,40 +1,64 @@
-# To build image run `docker build --tag crispdb:<version> .`
-
-ARG GRAALVM_VERSION=22.3.2
-ARG JAVA_VERSION=17
 ARG GRAALVM_WORKDIR=/graalvm/src/project
-
 ARG CRISP_VERSION=1.0.0
 
 # Multi-stage image ... creates intermediate layer(s) for doing the graalvm native
 # build (this is discarded by docker post-build)
-FROM ghcr.io/graalvm/graalvm-ce:ol8-java${JAVA_VERSION}-${GRAALVM_VERSION} AS build
+FROM ubuntu:24.04 AS build
 
-ARG GRADLE_VERSION=8.3
+ARG GRAAL_VERSION=25.3.4.1
+ARG JAVA_VERSION=25i3-25.0.4.1
+ARG GRAALVM_WORKDIR
+ARG GRADLE_VERSION=9.3.1
 ARG CRISP_VERSION
 
-WORKDIR /graalvm/src/project
+WORKDIR ${GRAALVM_WORKDIR}
 
 # Install tools required for project
 # Run `docker build --no-cache .` to update dependencies
-RUN gu install native-image \
- && microdnf install -y wget unzip libstdc++-static \
- && microdnf clean all \
+RUN apt-get update -y \
+ && apt-get upgrade -y \
+ && apt-get install -y wget unzip build-essential zlib1g-dev \
+ && apt-get autoremove --purge -y \
+ && wget https://github.com/graalvm/graalvm-ce-builds/releases/download/graal-${GRAAL_VERSION}/graalvm-community-jdk-${JAVA_VERSION}_linux-x64_bin.tar.gz -P /tmp \
+ && mkdir -p /opt/graalvm-community-jdk-${JAVA_VERSION} \
+ && tar zxvf /tmp/graalvm-community-jdk-${JAVA_VERSION}_linux-x64_bin.tar.gz -C /opt/graalvm-community-jdk-${JAVA_VERSION} --strip-components 1 \
  && wget https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip -P /tmp \
  && unzip -d /opt /tmp/gradle-${GRADLE_VERSION}-bin.zip \
- && rm /tmp/gradle-${GRADLE_VERSION}-bin.zip
+ && DEBIAN_FRONTEND=noninteractive TZ=America/NEW_YORK apt-get -y install tzdata
+
+ARG MUSL_VERSION=11.2.1
+ARG ZLIB_VERSION=1.3.2
+
+RUN wget http://more.musl.cc/${MUSL_VERSION}/x86_64-linux-musl/x86_64-linux-musl-native.tgz -P /tmp \
+ && mkdir /opt/musl-${MUSL_VERSION} \
+ && tar -zxvf /tmp/x86_64-linux-musl-native.tgz -C /opt/musl-${MUSL_VERSION}/ \
+ && wget https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz -P /tmp \
+ && tar -zxvf /tmp/zlib-${ZLIB_VERSION}.tar.gz -C /tmp
+
+# Build MUSL to static link into application
+ENV TOOLCHAIN_DIR=/opt/musl-${MUSL_VERSION}/x86_64-linux-musl-native
+
+ENV PATH=$PATH:${TOOLCHAIN_DIR}/bin
+ENV CC=$TOOLCHAIN_DIR/bin/gcc
+
+WORKDIR /tmp/zlib-${ZLIB_VERSION}
+RUN ./configure --prefix=${TOOLCHAIN_DIR} --static \
+ && make \
+ && make install \
+ && rm -rf /tmp/zlib-${ZLIB_VERSION}/
 
 ENV GRADLE_HOME=/opt/gradle-${GRADLE_VERSION}
-ENV PATH=${GRADLE_HOME}/bin:${PATH}
+ENV JAVA_HOME=/opt/graalvm-community-jdk-${JAVA_VERSION}
+ENV PATH=${JAVA_HOME}/bin:${GRADLE_HOME}/bin:${PATH}
+
+WORKDIR ${GRAALVM_WORKDIR}
 
 # Copy the entire project and build it
 # This layer is rebuilt when a file changes in the project directory
-COPY . /graalvm/src/project
+COPY . ${GRAALVM_WORKDIR}
 RUN ${GRADLE_HOME}/bin/gradle -q --no-daemon shadowJarAll nativeImageAll
 
 # Create a staging image (this will be part of the distribution)
-#FROM oracle/graalvm-ce:${GRAALVM_VERSION} AS app-stage
-#FROM alpine AS app-stage
 FROM scratch AS app-stage
 
 ARG GRAALVM_WORKDIR
@@ -45,20 +69,10 @@ ENV PATH=${CRISPDB_HOME}/bin:${PATH}
 
 WORKDIR ${CRISPDB_HOME}
 
-# Graal substrate VM requires libnss (even when a static binary is built)
-# we copy the glibc version into the image - this is because both
-# Scratch and Alpine do NOT include a glibc runtime
-COPY --from=build /lib64/ld-linux-x86-64.so.2 \
-                  /lib64/libc.so.6 \
-                  /lib64/libnss_dns.so.2 \
-                  /lib64/libnss_files.so.2 \
-                  /lib64/libresolv.so.2 /lib64/
-
 COPY --from=build ${GRAALVM_WORKDIR}/build/native/* ${CRISPDB_HOME}/bin/
-
-CMD [ "/bin/sh" ]
 
 # And we finally create the application layer
 FROM app-stage AS app
 ENTRYPOINT [ "cdbdump" ]
+
 
